@@ -7,6 +7,15 @@
 - [x] React booking UI integrated in WordPress (full-width, direct render)
 - [x] Admin menu and basic pages created (Dashboard, Appointments, Doctors, Services, Settings)
 - [x] User roles created (pacient, receptionist, asistent, medic, manager)
+- [x] **Settings System Complete (v1.2.0)** 
+  - 5 tabs: General, Booking, Email, Display, Security
+  - Date format: WordPress default + dd/mm/yyyy, dd-mm-yyyy, dd.mm.yyyy, mm/dd/yyyy, yyyy-mm-dd
+  - Time format: WordPress default + 24h, 12h
+  - Booking policies: advance booking, cancellation, auto-confirm
+  - Email templates: confirmation, reminder, cancellation (with placeholders)
+  - Display settings: color picker, doctor photos, calendar view
+  - Security settings: 2FA enforcement, session timeout, CNP validation
+  - Helper functions: MBS_Settings::get(), format_date(), format_time()
 
 ---
 

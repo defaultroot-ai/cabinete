@@ -3,7 +3,7 @@
  * Plugin Name: Medical Booking System
  * Plugin URI: https://example.com/medical-booking-system
  * Description: Complete medical appointment booking system with CNP authentication, multilingual support, calendar management, and patient management.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: Your Name
  * Author URI: https://example.com
  * License: GPL v2 or later
@@ -26,7 +26,7 @@ define('MBS_PLUGIN_FILE', __FILE__);
 define('MBS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MBS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MBS_PLUGIN_BASENAME', plugin_basename(__FILE__));
-define('MBS_VERSION', '1.1.0');
+define('MBS_VERSION', '1.2.0');
 
 /**
  * Main Medical Booking System Class
@@ -113,6 +113,7 @@ class MedicalBookingSystem {
         // Initialize admin
         if (is_admin()) {
             MBS_Admin::get_instance();
+            MBS_Settings::get_instance();
         }
         
         // Initialize public

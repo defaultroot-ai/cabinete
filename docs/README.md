@@ -12,6 +12,12 @@ Complete documentation for the Medical Booking System WordPress plugin.
 | [../README.md](../README.md) | Main plugin overview and features | 10 min |
 | [../CHANGELOG.md](../CHANGELOG.md) | Version history and changes | 5 min |
 
+### Configuration
+
+| Document | Description | Time to Read |
+|----------|-------------|--------------|
+| [SETTINGS.md](SETTINGS.md) | Settings system and configuration guide | 15 min |
+
 ### Authentication System
 
 | Document | Description | Time to Read |
@@ -31,6 +37,14 @@ Complete documentation for the Medical Booking System WordPress plugin.
 ## 🔍 Quick Navigation
 
 ### By Topic
+
+#### ⚙️ Configuration
+- [Settings Overview](SETTINGS.md#overview)
+- [General Settings](SETTINGS.md#1-general-settings)
+- [Booking Policies](SETTINGS.md#2-booking-settings)
+- [Email Templates](SETTINGS.md#3-email-settings)
+- [Display Options](SETTINGS.md#4-display-settings)
+- [Security Settings](SETTINGS.md#5-security-settings)
 
 #### 🔐 Authentication & Security
 - [Authentication System Overview](AUTHENTICATION.md#overview)
@@ -67,8 +81,9 @@ Complete documentation for the Medical Booking System WordPress plugin.
 
 **Initial Setup:**
 1. [Quick Start Guide](QUICK-START.md) - Get started in 5 minutes
-2. [Configure Authentication](AUTHENTICATION.md#wordpress-admin-setup)
-3. [Add Doctors and Services](PROJECT-PLAN.md#admin-ui)
+2. [Configure Settings](SETTINGS.md) - Set up date formats, emails, policies
+3. [Configure Authentication](AUTHENTICATION.md#wordpress-admin-setup)
+4. [Add Doctors and Services](PROJECT-PLAN.md#admin-ui)
 
 **User Management:**
 - [Understanding User Roles](PROJECT-PLAN.md#user-roles)
@@ -114,6 +129,17 @@ Complete documentation for the Medical Booking System WordPress plugin.
 - Test scenarios (register, login, booking)
 - CNP test values
 - Troubleshooting
+
+### SETTINGS.md
+**What:** Complete settings documentation  
+**For:** Configuring plugin behavior  
+**Contains:**
+- All settings tabs explained
+- Date/time format options
+- Booking policies configuration
+- Email template customization
+- PHP usage examples
+- JavaScript integration
 
 ### AUTHENTICATION.md
 **What:** Complete authentication documentation  
@@ -187,8 +213,9 @@ Complete documentation for the Medical Booking System WordPress plugin.
 
 | Document | Version | Last Updated | Status |
 |----------|---------|--------------|--------|
-| README.md (main) | 1.1.0 | 2025-10-20 | ✅ Complete |
-| CHANGELOG.md | 1.1.0 | 2025-10-20 | ✅ Complete |
+| README.md (main) | 1.2.0 | 2025-10-20 | ✅ Complete |
+| CHANGELOG.md | 1.2.0 | 2025-10-20 | ✅ Complete |
+| SETTINGS.md | 1.0 | 2025-10-20 | ✅ Complete |
 | QUICK-START.md | 1.0 | 2025-10-20 | ✅ Complete |
 | AUTHENTICATION.md | 1.0 | 2025-10-20 | ✅ Complete |
 | 2FA-IMPLEMENTATION.md | 1.0 | 2025-10-20 | ✅ Complete |
@@ -200,10 +227,11 @@ Complete documentation for the Medical Booking System WordPress plugin.
 ## 💡 Tips for Reading
 
 1. **Start with** [QUICK-START.md](QUICK-START.md) if you want to test immediately
-2. **Read** [AUTHENTICATION.md](AUTHENTICATION.md) for complete auth understanding
-3. **Check** [TODO.md](TODO.md) for current development status
-4. **Review** [2FA-IMPLEMENTATION.md](2FA-IMPLEMENTATION.md) when ready to implement 2FA
-5. **Refer to** [PROJECT-PLAN.md](PROJECT-PLAN.md) for architecture details
+2. **Configure** [SETTINGS.md](SETTINGS.md) to customize plugin behavior
+3. **Read** [AUTHENTICATION.md](AUTHENTICATION.md) for complete auth understanding
+4. **Check** [TODO.md](TODO.md) for current development status
+5. **Review** [2FA-IMPLEMENTATION.md](2FA-IMPLEMENTATION.md) when ready to implement 2FA
+6. **Refer to** [PROJECT-PLAN.md](PROJECT-PLAN.md) for architecture details
 
 ---
 
@@ -221,5 +249,5 @@ Contact your development team.
 ---
 
 *Last updated: October 20, 2025*  
-*Documentation version: 1.1.0*
+*Documentation version: 1.2.0*
 

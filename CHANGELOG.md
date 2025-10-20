@@ -5,6 +5,100 @@ All notable changes to the Medical Booking System plugin will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-10-20
+
+### Added - Settings System
+- **Complete Settings System** with 5 organized tabs:
+  - **General Settings**: Business info, timezone, date/time formats
+  - **Booking Settings**: Policies, limits, display options
+  - **Email Settings**: Notification templates with placeholders
+  - **Display Settings**: Theme colors, UI customization
+  - **Security Settings**: 2FA configuration, session timeout, validation
+  
+- **Date Format Options**:
+  - WordPress default (uses WP settings)
+  - DD/MM/YYYY (`20/10/2025`)
+  - DD-MM-YYYY (`20-10-2025`)
+  - DD.MM.YYYY (`20.10.2025`)
+  - MM/DD/YYYY (`10/20/2025`)
+  - YYYY-MM-DD (`2025-10-20`)
+  
+- **Time Format Options**:
+  - WordPress default (uses WP settings)
+  - 24-hour format (`14:30`)
+  - 12-hour format (`2:30 PM`)
+  
+- **Email Template System**:
+  - Confirmation email template
+  - Reminder email template (24h before)
+  - Cancellation email template
+  - Customizable subjects and bodies
+  - Placeholder support: `{patient_name}`, `{appointment_date}`, `{appointment_time}`, `{doctor_name}`, `{service_name}`, `{business_name}`, `{cancellation_reason}`
+  
+- **Booking Policy Configuration**:
+  - Advance booking days (1-365)
+  - Max appointments per day (1-100)
+  - Time slot interval (15/30/60 minutes)
+  - Patient cancellation allowed (Yes/No)
+  - Cancellation deadline (hours before appointment)
+  - Auto-confirm appointments (Yes/No)
+  - Show/hide service prices
+  - Show/hide service durations
+  - Show/hide available slots count
+  
+- **Security Configuration**:
+  - 2FA enforcement (all users / optional)
+  - 2FA recommendation banner
+  - Session timeout (5-1440 minutes)
+  - Failed login limit (3-10 attempts)
+  - CNP strict validation toggle
+  
+- **Display Customization**:
+  - Primary color picker (WordPress color picker)
+  - Doctor photos display toggle
+  - Calendar view type (Week/Month/Day)
+  
+- **Helper Functions**:
+  - `MBS_Settings::get($key, $default)` - Get setting value
+  - `MBS_Settings::format_date($date, $format)` - Format date based on settings
+  - `MBS_Settings::format_time($time, $format)` - Format time based on settings
+  - `MBS_Settings::get_defaults()` - Get all default settings
+  
+- **Admin UI Enhancements**:
+  - WordPress color picker integration
+  - Form validation (email, numbers, ranges)
+  - Conditional field visibility
+  - Email template placeholder helper
+  - Character counter for textareas
+  - Timezone search functionality
+  - Auto-hide success messages
+
+### Changed
+- **Plugin Version**: 1.1.0 → 1.2.0
+- **Admin Menu**: Settings page now functional with full configuration
+- **Settings Storage**: Centralized in `mbs_settings` option
+- **Date/Time Display**: Now uses configured formats throughout plugin
+
+### Documentation
+- Added `docs/SETTINGS.md` - Complete settings guide (40+ pages)
+  - All settings tabs explained
+  - PHP usage examples
+  - JavaScript integration guide
+  - Best practices
+  - Troubleshooting
+- Updated `README.md` - Added Settings link
+- Updated `docs/README.md` - Added Settings section
+- Updated `docs/TODO.md` - Marked Settings as completed
+
+### Technical Details
+- New file: `admin/class-settings.php` (788 lines)
+- New file: `assets/js/admin-settings.js` (jQuery-based admin UI)
+- Settings API integration with WordPress Settings API
+- All settings sanitized and validated
+- Settings exposed to frontend via `wp_localize_script`
+
+---
+
 ## [1.1.0] - 2025-10-20
 
 ### Added - Authentication System
@@ -149,15 +243,15 @@ mbs_cnp - Romanian CNP (13 digits)
 
 ## [Unreleased] - Future Versions
 
-### Planned for 1.2.0
+### Planned for 1.3.0
 - [ ] 2FA (TOTP with Google Authenticator)
+- [ ] Email notifications implementation (templates ready)
 - [ ] Complete admin UI for doctor schedule management
-- [ ] Email notifications system
 - [ ] Patient dashboard with appointment history
 - [ ] Appointment cancellation feature
 - [ ] Doctor availability calendar view
 
-### Planned for 1.3.0
+### Planned for 1.4.0
 - [ ] SMS notifications (Twilio integration)
 - [ ] Payment integration (Stripe/PayPal)
 - [ ] Recurring appointments
@@ -181,12 +275,40 @@ mbs_cnp - Romanian CNP (13 digits)
 
 | Version | Date | Status | Notes |
 |---------|------|--------|-------|
+| 1.2.0 | 2025-10-20 | ✅ Released | Settings system |
 | 1.1.0 | 2025-10-20 | ✅ Released | Authentication system |
 | 1.0.0 | 2025-10-15 | ✅ Released | Initial release |
 
 ---
 
 ## Upgrade Notes
+
+### Upgrading to 1.2.0 from 1.1.0
+
+1. **New Settings System**: Automatic
+   - Settings page now fully functional
+   - Default settings applied automatically
+   - Visit Medical Booking → Settings to customize
+   
+2. **Date/Time Formats**: 
+   - Defaults to WordPress settings
+   - Customize in Settings → General tab
+   - Existing dates will use new formats
+   
+3. **Email Templates**: 
+   - Ready to use (not yet sending)
+   - Configure in Settings → Email tab
+   - Placeholders available for customization
+   
+4. **Breaking Changes**: None
+   - Fully backward compatible with 1.1.0
+   - All existing functionality preserved
+   
+5. **New Features**:
+   - Complete settings configuration
+   - Date/time format customization
+   - Email template preparation
+   - Booking policy management
 
 ### Upgrading to 1.1.0 from 1.0.0
 
@@ -214,6 +336,7 @@ For bug reports and feature requests, contact your development team.
 ## Links
 
 - [Documentation](docs/)
+- [Settings Guide](docs/SETTINGS.md)
 - [Authentication Guide](docs/AUTHENTICATION.md)
 - [Quick Start](docs/QUICK-START.md)
 - [2FA Guide](docs/2FA-IMPLEMENTATION.md)

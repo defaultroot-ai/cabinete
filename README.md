@@ -1,6 +1,6 @@
 # Medical Booking System
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)
+![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)
 ![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)
 ![License](https://img.shields.io/badge/license-GPL--2.0%2B-green.svg)
@@ -94,6 +94,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) folder:
 |----------|-------------|
 | [TODO.md](docs/TODO.md) | Development roadmap and task tracking |
 | [AUTHENTICATION.md](docs/AUTHENTICATION.md) | Complete authentication system guide |
+| [SETTINGS.md](docs/SETTINGS.md) | Settings system and configuration guide |
 | [QUICK-START.md](docs/QUICK-START.md) | 5-minute quick start guide |
 | [2FA-IMPLEMENTATION.md](docs/2FA-IMPLEMENTATION.md) | Two-factor authentication guide |
 | [PROJECT-PLAN.md](docs/PROJECT-PLAN.md) | Detailed project architecture |
@@ -101,6 +102,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) folder:
 ### Quick Links
 
 - 🔐 [Authentication Setup](docs/AUTHENTICATION.md)
+- ⚙️ [Settings Guide](docs/SETTINGS.md)
 - 🚀 [Quick Start Guide](docs/QUICK-START.md)
 - 📋 [Development TODO](docs/TODO.md)
 - 🔒 [2FA Implementation](docs/2FA-IMPLEMENTATION.md)
