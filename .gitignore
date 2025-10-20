@@ -1,0 +1,50 @@
+# WordPress
+.htaccess
+wp-config.php
+wp-content/uploads/
+wp-content/cache/
+wp-content/backup-db/
+
+# Plugin Development
+node_modules/
+vendor/
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Compiled files
+*.mo
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Build files
+dist/
+build/
+*.min.js
+*.min.css
+
+# Database backups
+*.sql
+*.sql.gz
+
+# OS
+.DS_Store
+desktop.ini
+
+# Temporary files
+temp/
+tmp/
+*.cache
+
