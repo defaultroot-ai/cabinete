@@ -21,7 +21,7 @@ class MBS_Database {
     /**
      * Database version
      */
-    private $db_version = '1.1.0';
+    private $db_version = '1.5.0';
     
     /**
      * Get single instance
@@ -152,6 +152,8 @@ class MBS_Database {
             email varchar(255),
             cnp varchar(13),
             birth_date date,
+            age int(3) DEFAULT NULL,
+            gender enum('M','F') DEFAULT NULL,
             address text,
             emergency_contact_name varchar(255),
             emergency_contact_phone varchar(20),
@@ -260,6 +262,34 @@ class MBS_Database {
             KEY user_id (user_id),
             KEY is_verified (is_verified)
         ) $charset_collate;";
+
+        // Table: Families
+        $table_families = $wpdb->prefix . 'mbs_families';
+        $sql_families = "CREATE TABLE $table_families (
+            id int(11) NOT NULL AUTO_INCREMENT,
+            family_name varchar(255) NOT NULL,
+            head_patient_id int(11) NOT NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY head_patient_id (head_patient_id),
+            KEY family_name (family_name)
+        ) $charset_collate;";
+
+        // Table: Family Members
+        $table_family_members = $wpdb->prefix . 'mbs_family_members';
+        $sql_family_members = "CREATE TABLE $table_family_members (
+            id int(11) NOT NULL AUTO_INCREMENT,
+            family_id int(11) NOT NULL,
+            patient_id int(11) NOT NULL,
+            relationship_type enum('head','spouse','child','parent','sibling','other') NOT NULL,
+            notes text,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY family_id (family_id),
+            KEY patient_id (patient_id),
+            KEY relationship_type (relationship_type)
+        ) $charset_collate;";
         
         // Execute table creation
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
@@ -275,6 +305,11 @@ class MBS_Database {
         dbDelta($sql_notifications);
         dbDelta($sql_settings);
         dbDelta($sql_user_phones);
+        dbDelta($sql_families);
+        dbDelta($sql_family_members);
+        
+        // Add gender column to existing patients table if it doesn't exist
+        $this->add_gender_column_to_patients();
         
         // Create user roles
         $this->create_user_roles();
@@ -283,6 +318,29 @@ class MBS_Database {
         $this->insert_default_data();
         
         error_log('Medical Booking System: Database tables created successfully');
+    }
+    
+    /**
+     * Add gender and age columns to existing patients table
+     */
+    private function add_gender_column_to_patients() {
+        global $wpdb;
+        
+        $table_patients = $wpdb->prefix . 'mbs_patients';
+        
+        // Check if gender column exists
+        $gender_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_patients LIKE 'gender'");
+        if (empty($gender_exists)) {
+            $wpdb->query("ALTER TABLE $table_patients ADD COLUMN gender enum('M','F') DEFAULT NULL AFTER birth_date");
+            error_log('Medical Booking System: Added gender column to patients table');
+        }
+        
+        // Check if age column exists
+        $age_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_patients LIKE 'age'");
+        if (empty($age_exists)) {
+            $wpdb->query("ALTER TABLE $table_patients ADD COLUMN age int(3) DEFAULT NULL AFTER birth_date");
+            error_log('Medical Booking System: Added age column to patients table');
+        }
     }
     
     /**

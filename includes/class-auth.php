@@ -97,7 +97,8 @@ class MBS_Auth {
     }
     
     /**
-     * Validate Romanian CNP with control algorithm
+     * Validate Romanian CNP with control algorithm - CNAS Compatible
+     * Validates CNP following CNAS logic (accepts CNPs processed by official CNAS platform)
      * 
      * @param string $cnp CNP to validate
      * @return bool True if valid CNP
@@ -108,7 +109,7 @@ class MBS_Auth {
             return false;
         }
         
-        // Control algorithm
+        // Control algorithm (official Romanian CNP algorithm)
         $control_string = '279146358279';
         $sum = 0;
         
@@ -121,6 +122,8 @@ class MBS_Auth {
             $control_digit = 1;
         }
         
+        // Note: This validation follows CNAS logic and does NOT validate county codes
+        // CNAS may use updated county codes or special cases not in public documentation
         return (int)$cnp[12] === $control_digit;
     }
     

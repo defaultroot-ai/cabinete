@@ -1,0 +1,446 @@
+/* Medical Booking System - Public Styles */
+
+.mbs-booking-container {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    line-height: 1.6;
+    color: #374151;
+}
+
+.mbs-booking-container * {
+    box-sizing: border-box;
+}
+
+.mbs-booking-container .mbs-step-indicator {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.mbs-booking-container .mbs-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+}
+
+.mbs-booking-container .mbs-step-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 0.5rem;
+    transition: all 0.3s ease;
+}
+
+.mbs-booking-container .mbs-step.active .mbs-step-icon {
+    background-color: #2563eb;
+    color: white;
+    transform: scale(1.1);
+}
+
+.mbs-booking-container .mbs-step.completed .mbs-step-icon {
+    background-color: #10b981;
+    color: white;
+}
+
+.mbs-booking-container .mbs-step.pending .mbs-step-icon {
+    background-color: #e5e7eb;
+    color: #6b7280;
+}
+
+.mbs-booking-container .mbs-step-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-align: center;
+}
+
+.mbs-booking-container .mbs-step.active .mbs-step-label {
+    color: #2563eb;
+}
+
+.mbs-booking-container .mbs-step.pending .mbs-step-label {
+    color: #6b7280;
+}
+
+.mbs-booking-container .mbs-progress-line {
+    flex: 1;
+    height: 4px;
+    margin: 0 8px;
+    border-radius: 2px;
+}
+
+.mbs-booking-container .mbs-progress-line.completed {
+    background-color: #10b981;
+}
+
+.mbs-booking-container .mbs-progress-line.pending {
+    background-color: #e5e7eb;
+}
+
+.mbs-booking-container .mbs-service-card,
+.mbs-booking-container .mbs-doctor-card,
+.mbs-booking-container .mbs-family-member-card {
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1.5rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: white;
+}
+
+.mbs-booking-container .mbs-service-card:hover,
+.mbs-booking-container .mbs-doctor-card:hover,
+.mbs-booking-container .mbs-family-member-card:hover {
+    border-color: #93c5fd;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.mbs-booking-container .mbs-service-card.selected,
+.mbs-booking-container .mbs-doctor-card.selected,
+.mbs-booking-container .mbs-family-member-card.selected {
+    border-color: #2563eb;
+    background-color: #eff6ff;
+}
+
+.mbs-booking-container .mbs-calendar {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+}
+
+.mbs-booking-container .mbs-calendar-header {
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+    padding: 8px 0;
+}
+
+.mbs-booking-container .mbs-calendar-day {
+    aspect-ratio: 1;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.mbs-booking-container .mbs-calendar-day.available {
+    border-color: #e5e7eb;
+    color: #374151;
+}
+
+.mbs-booking-container .mbs-calendar-day.available:hover {
+    border-color: #93c5fd;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.mbs-booking-container .mbs-calendar-day.selected {
+    border-color: #2563eb;
+    background-color: #2563eb;
+    color: white;
+}
+
+.mbs-booking-container .mbs-calendar-day.today {
+    border-color: #10b981;
+    background-color: #ecfdf5;
+    color: #065f46;
+}
+
+.mbs-booking-container .mbs-calendar-day.disabled {
+    border-color: #f3f4f6;
+    background-color: #f9fafb;
+    color: #d1d5db;
+    cursor: not-allowed;
+}
+
+.mbs-booking-container .mbs-time-slot {
+    padding: 12px;
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 0.875rem;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    text-align: center;
+}
+
+.mbs-booking-container .mbs-time-slot.available {
+    background-color: white;
+    border: 2px solid #e5e7eb;
+    color: #374151;
+}
+
+.mbs-booking-container .mbs-time-slot.available:hover {
+    border-color: #93c5fd;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.mbs-booking-container .mbs-time-slot.selected {
+    background-color: #2563eb;
+    color: white;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.mbs-booking-container .mbs-time-slot.booked {
+    background-color: #fef2f2;
+    border: 2px solid #fca5a5;
+    color: #991b1b;
+    cursor: not-allowed;
+}
+
+.mbs-booking-container .mbs-time-slot.blocked {
+    background-color: #fff7ed;
+    border: 2px solid #fed7aa;
+    color: #9a3412;
+    cursor: not-allowed;
+}
+
+.mbs-booking-container .mbs-button {
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mbs-booking-container .mbs-button-primary {
+    background-color: #2563eb;
+    color: white;
+}
+
+.mbs-booking-container .mbs-button-primary:hover {
+    background-color: #1d4ed8;
+}
+
+.mbs-booking-container .mbs-button-secondary {
+    background-color: white;
+    color: #374151;
+    border: 2px solid #d1d5db;
+}
+
+.mbs-booking-container .mbs-button-secondary:hover {
+    border-color: #93c5fd;
+    color: #2563eb;
+}
+
+.mbs-booking-container .mbs-button-success {
+    background-color: #10b981;
+    color: white;
+}
+
+.mbs-booking-container .mbs-button-success:hover {
+    background-color: #059669;
+}
+
+.mbs-booking-container .mbs-button:disabled {
+    background-color: #9ca3af;
+    cursor: not-allowed;
+}
+
+.mbs-booking-container .mbs-error {
+    background-color: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.mbs-booking-container .mbs-error-title {
+    color: #991b1b;
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+}
+
+.mbs-booking-container .mbs-error-message {
+    color: #b91c1c;
+    font-size: 0.875rem;
+}
+
+.mbs-booking-container .mbs-summary {
+    background-color: #eff6ff;
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.mbs-booking-container .mbs-summary-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #bfdbfe;
+    margin-bottom: 0.75rem;
+}
+
+.mbs-booking-container .mbs-summary-item:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.mbs-booking-container .mbs-summary-label {
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.mbs-booking-container .mbs-summary-value {
+    text-align: right;
+}
+
+.mbs-booking-container .mbs-summary-value-title {
+    font-weight: 700;
+    color: #374151;
+}
+
+.mbs-booking-container .mbs-summary-value-subtitle {
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.mbs-booking-container .mbs-confirmation {
+    text-align: center;
+    padding: 2rem 0;
+}
+
+.mbs-booking-container .mbs-confirmation-icon {
+    width: 80px;
+    height: 80px;
+    background-color: #ecfdf5;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 1.5rem;
+}
+
+.mbs-booking-container .mbs-confirmation-title {
+    font-size: 1.875rem;
+    font-weight: 700;
+    color: #374151;
+    margin-bottom: 1rem;
+}
+
+.mbs-booking-container .mbs-confirmation-message {
+    color: #6b7280;
+    margin-bottom: 2rem;
+}
+
+.mbs-booking-container .mbs-booking-code {
+    background-color: #f9fafb;
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-width: 28rem;
+    margin: 0 auto 2rem;
+}
+
+.mbs-booking-container .mbs-booking-code-label {
+    font-size: 0.875rem;
+    color: #6b7280;
+    margin-bottom: 0.5rem;
+}
+
+.mbs-booking-container .mbs-booking-code-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #2563eb;
+    margin-bottom: 1rem;
+}
+
+.mbs-booking-container .mbs-booking-code-note {
+    font-size: 0.75rem;
+    color: #9ca3af;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .mbs-booking-container .mbs-step-indicator {
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+    
+    .mbs-booking-container .mbs-step {
+        flex: 1 1 calc(50% - 0.5rem);
+    }
+    
+    .mbs-booking-container .mbs-calendar {
+        gap: 4px;
+    }
+    
+    .mbs-booking-container .mbs-calendar-day {
+        padding: 4px;
+        font-size: 0.875rem;
+    }
+    
+    .mbs-booking-container .mbs-time-slot {
+        padding: 8px;
+        font-size: 0.75rem;
+    }
+}
+
+/* Loading Animation */
+.mbs-booking-container .mbs-loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: mbs-spin 1s ease-in-out infinite;
+}
+
+@keyframes mbs-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Tooltip Styles */
+.mbs-booking-container .mbs-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 8px;
+    padding: 12px;
+    background-color: #1f2937;
+    color: white;
+    font-size: 0.75rem;
+    border-radius: 8px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 10;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.mbs-booking-container .mbs-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 4px solid transparent;
+    border-top-color: #1f2937;
+}
+
+.mbs-booking-container .mbs-tooltip.show {
+    opacity: 1;
+}
+
+.mbs-booking-container .mbs-tooltip-title {
+    font-weight: 600;
+}
+
+.mbs-booking-container .mbs-tooltip-message {
+    color: #d1d5db;
+}

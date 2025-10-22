@@ -105,11 +105,11 @@ class MBS_Settings {
 			
 			// Email Templates
 			'email_appointment_confirmation_subject' => __('Confirmare programare', 'medical-booking-system'),
-			'email_appointment_confirmation_body' => $this->get_default_email_template('confirmation'),
+			'email_appointment_confirmation_body' => self::get_default_email_template('confirmation'),
 			'email_appointment_reminder_subject' => __('Reminder: Programare mâine', 'medical-booking-system'),
-			'email_appointment_reminder_body' => $this->get_default_email_template('reminder'),
+			'email_appointment_reminder_body' => self::get_default_email_template('reminder'),
 			'email_appointment_cancellation_subject' => __('Programare anulată', 'medical-booking-system'),
-			'email_appointment_cancellation_body' => $this->get_default_email_template('cancellation'),
+			'email_appointment_cancellation_body' => self::get_default_email_template('cancellation'),
 			
 			// Display Settings
 			'primary_color' => '#3b82f6',
@@ -231,7 +231,7 @@ class MBS_Settings {
 	/**
 	 * Get default email template
 	 */
-	private function get_default_email_template($type) {
+	private static function get_default_email_template($type) {
 		$templates = array(
 			'confirmation' => "Bună ziua {patient_name},\n\nProgramarea dumneavoastră a fost confirmată:\n\nData: {appointment_date}\nOra: {appointment_time}\nDoctor: {doctor_name}\nServiciu: {service_name}\n\nVă rugăm să ajungeți cu 10 minute înainte.\n\nMulțumim!",
 			'reminder' => "Bună ziua {patient_name},\n\nVă reamintim de programarea dumneavoastră de mâine:\n\nData: {appointment_date}\nOra: {appointment_time}\nDoctor: {doctor_name}\n\nVă rugăm să confirmați prezența.\n\nMulțumim!",

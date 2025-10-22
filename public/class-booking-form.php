@@ -14,6 +14,7 @@ class MBS_Booking_Form {
 
     public function register_shortcodes() {
         add_shortcode('medical_booking', array($this, 'shortcode_booking'));
+        add_shortcode('mbs_booking', array($this, 'shortcode_booking'));
     }
 
     public function shortcode_booking($atts = array(), $content = '') {
