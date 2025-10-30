@@ -60,24 +60,24 @@
   - README-AUTH.md complet cu toate detaliile
 
 ### Pas 1: Date de Test (5-10 min)
-- [ ] Adaugă 2-3 medici via Admin → Medical Booking → Doctors
+- [x] Adaugă 2-3 medici via Admin → Medical Booking → Doctors
   - Exemplu: Dr. Maria Popescu (Medicină Generală)
   - Exemplu: Dr. Ion Ionescu (Cardiolog)
   - Exemplu: Dr. Ana Gheorghe (Medicină Generală)
-- [ ] Configurează program medici (Luni-Vineri 09:00-17:00)
-- [ ] Asociază medici cu servicii (wp_mbs_doctor_services)
+- [x] Configurează program medici (orar personalizat setat)
+- [x] Asociază medici cu servicii (wp_mbs_doctor_services)
 
 ### Pas 2: Fix Patient Handling (10 min)
-- [ ] Fix `patient_id: 0` în POST /appointments
-- [ ] Auto-create patient din user curent (dacă este logat)
-- [ ] Permite guest booking cu date manual introduse
-- [ ] Update frontend să trimită date pacient
+- [x] Fix `patient_id: 0` în POST /appointments (mapare automată user→patient)
+- [x] Auto-create patient din user curent (dacă este logat)
+- [ ] Permite guest booking cu date manual introduse (nu se folosește în MVP actual)
+- [x] Update frontend: eliminat trimitere `patient_id`; backend face maparea
 
 ### Pas 3: Test Complet (5 min)
 - [ ] Test flux: serviciu → medic → dată → oră → confirmare
 - [ ] Verifică programarea salvată în wp_mbs_appointments
 - [ ] Test conflict detection (același doctor, aceeași oră)
-- [ ] Test sloturi disponibile (exclude weekend, past dates)
+- [x] Test sloturi disponibile (exclude weekend, past dates) – generare sloturi corectă; ajustat `slot_interval` la 15 min pentru serviciu 29
 
 ---
 
@@ -235,7 +235,10 @@
 ## 🎨 UX & Polish
 
 ### UI/UX (2 ore)
-- [ ] Mobile responsive complete
+- [x] Mobile responsive (prima versiune):
+  - Stepper ascuns pe mobil; butoane Înapoi/Înainte sticky
+  - Carduri full-width; paddings reduse pe mobil; touch-friendly
+  - Seed nume pacient la primul render pentru a elimina flicker
   - Test pe toate breakpoints
   - Touch-friendly controls
 - [ ] Accessibility (a11y)
@@ -320,6 +323,64 @@
 
 ---
 
+## ✅ Checklist de control MVP — Riscuri & Criterii de acceptanță
+
+- [ ] PII masking pentru CNP și date sensibile în UI și loguri
+  - Responsabil: Dev Frontend, Dev Backend
+  - Criterii de acceptanță: toate aparițiile CNP sunt mascate (ultimele 4 cifre); logurile aplicației și serverului nu conțin CNP complet sau telefoane ne-redactate; review de securitate trecut.
+
+- [ ] Nonce și rate limiting aplicate pe toate endpoint-urile REST
+  - Responsabil: Dev Backend
+  - Criterii de acceptanță: fiecare endpoint critic validează nonce; throttling per IP/user configurat; teste manuale arată 429 după depășirea limitei.
+
+- [ ] Mapare corectă user→patient și `patient_id` setat în programări
+  - Responsabil: Dev Backend
+  - Criterii de acceptanță: creare programare logged-in asociază `patient_id` existent sau auto-creat; flux guest creează pacient temporar și normalizează datele; zero rânduri cu `patient_id=0` după test.
+
+- [ ] Prevenire double-booking (lock/verificare la commit)
+  - Responsabil: Dev Backend
+  - Criterii de acceptanță: două cereri concurente pentru același doctor/interval nu pot crea programări duplicate; return 409 Conflict la a doua cerere; index compus existent pe (doctor_id, start_time).
+
+- [ ] Normalizare timp și timezone (UTC în DB, conversie în UI)
+  - Responsabil: Dev Backend, Dev Frontend
+  - Criterii de acceptanță: orele afișate coincid cu cele stocate pentru trei timezone-uri de test; caz DST acoperit în teste manuale.
+
+- [ ] Email confirmation funcțional + cron healthcheck
+  - Responsabil: Dev Backend
+  - Criterii de acceptanță: e-mail de confirmare se trimite pentru status=confirmed; cron rulează și loghează execuția; link de anulare corect și validat.
+
+- [ ] Indexuri DB pentru interogări critice de programări
+  - Responsabil: Dev Backend
+  - Criterii de acceptanță: EXPLAIN arată utilizarea indexurilor pe (doctor_id, start_time); timpi < 100ms pe set de date de test mărit.
+
+- [ ] Cache și invalidare pentru doctors/services
+  - Responsabil: Dev Backend
+  - Criterii de acceptanță: răspunsurile sunt cache-uit pe 15 min; la CRUD pe doctors/services cache-ul se invalidează; nu se servesc date vechi după update.
+
+- [ ] Permisiuni/roluri verificate pe Admin și API
+  - Responsabil: Dev Backend, QA
+  - Criterii de acceptanță: utilizatorii fără capabilități nu pot accesa endpoint-urile admin; test negativ pentru escaladare privilegii trece.
+
+- [ ] Mesaje de eroare prietenoase și traduse (fără stack traces)
+  - Responsabil: Dev Frontend
+  - Criterii de acceptanță: erorile afișate conțin text prietenos în română; coduri interne în log numai; acoperire i18n.
+
+- [ ] Teste pentru `POST /appointments` (happy path + conflict + guest)
+  - Responsabil: Dev Backend
+  - Criterii de acceptanță: cel puțin 3 teste trec: creare reușită, conflict 409, creare ca guest cu date minime.
+
+- [ ] Versionare migrații DB cu posibilitate minimă de rollback
+  - Responsabil: Dev Backend
+  - Criterii de acceptanță: versiuni incremental numerotate; script de rollback pentru ultimul pas validat pe mediu de test.
+
+- [ ] Audit trail pentru schimbări de status la programări
+  - Responsabil: Dev Backend
+  - Criterii de acceptanță: tabel `wp_mbs_appointment_history` înregistrează cine/când/ce status vechi/ nou; vizibil în Admin.
+
+- [ ] A11y minim: focus, tastatură, ARIA pe fluxul de rezervare
+  - Responsabil: Dev Frontend
+  - Criterii de acceptanță: navigare completă cu tastatura; focus vizibil; roluri/aria-labels setate pe componentele interactive.
+
 ## 📝 Notes
 
 **Current Status:**
@@ -330,15 +391,15 @@
 - Admin: ✅ Basic management pages
 
 **Next Immediate Steps:**
-1. Add test doctors (Admin UI ready)
-2. Configure doctor schedules
-3. Fix patient_id in appointments
-4. Test complete booking flow
+1. Test complet cap‑coadă + verificare salvare în `wp_mbs_appointments`
+2. Conflict detection și mesaje UX la suprapuneri
+3. Email confirmation (minim)
+4. Patient Dashboard (listă programări)
 
 **Estimated Time to MVP:** 2-3 hours
 **Estimated Time to Production Ready:** 10-15 hours
 
 ---
 
-*Last Updated: October 20, 2025*
+*Last Updated: October 30, 2025*
 

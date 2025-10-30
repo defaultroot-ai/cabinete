@@ -350,9 +350,81 @@ class MBS_Auth {
             $this->add_user_phone($user_id, $data['phone'], true);
         }
         
-        // Assign patient role
+        // Assign role - default to patient if not specified
+        $role = isset($data['role']) ? sanitize_text_field($data['role']) : 'mbs_patient';
         $user = new WP_User($user_id);
-        $user->set_role('mbs_patient');
+        $user->set_role($role);
+        
+        return $user_id;
+    }
+    
+    /**
+     * Register medical staff (doctor, assistant, receptionist, manager) with CNP
+     * 
+     * @param array $data User registration data
+     * @return int|WP_Error User ID or error
+     */
+    public function register_medical_staff($data) {
+        // Validate required fields for medical staff
+        $required = array('cnp', 'email', 'password', 'first_name', 'last_name', 'role');
+        foreach ($required as $field) {
+            if (empty($data[$field])) {
+                return new WP_Error('missing_field', sprintf(__('Câmpul %s este obligatoriu', 'medical-booking-system'), $field));
+            }
+        }
+        
+        // Validate role
+        $valid_roles = array('mbs_doctor', 'mbs_assistant', 'mbs_receptionist', 'mbs_manager');
+        if (!in_array($data['role'], $valid_roles)) {
+            return new WP_Error('invalid_role', __('Rol invalid pentru personalul medical', 'medical-booking-system'));
+        }
+        
+        // Validate CNP
+        if (!$this->validate_cnp($data['cnp'])) {
+            return new WP_Error('invalid_cnp', __('CNP invalid', 'medical-booking-system'));
+        }
+        
+        // Check if CNP already exists
+        if ($this->get_user_by_cnp($data['cnp'])) {
+            return new WP_Error('cnp_exists', __('CNP deja înregistrat', 'medical-booking-system'));
+        }
+        
+        // Check if email already exists
+        if (email_exists($data['email'])) {
+            return new WP_Error('email_exists', __('Email deja înregistrat', 'medical-booking-system'));
+        }
+        
+        // Create user with CNP as username
+        $user_id = wp_create_user($data['cnp'], $data['password'], $data['email']);
+        
+        if (is_wp_error($user_id)) {
+            return $user_id;
+        }
+        
+        // Update user data
+        wp_update_user(array(
+            'ID' => $user_id,
+            'first_name' => sanitize_text_field($data['first_name']),
+            'last_name' => sanitize_text_field($data['last_name']),
+            'display_name' => sanitize_text_field($data['first_name'] . ' ' . $data['last_name']),
+        ));
+        
+        // Save CNP to user meta
+        update_user_meta($user_id, 'mbs_cnp', $data['cnp']);
+        
+        // Add phone if provided
+        if (!empty($data['phone'])) {
+            $this->add_user_phone($user_id, $data['phone'], true);
+        }
+        
+        // Save additional medical staff data
+        if (!empty($data['specialty'])) {
+            update_user_meta($user_id, 'mbs_specialty', sanitize_text_field($data['specialty']));
+        }
+        
+        // Assign medical staff role
+        $user = new WP_User($user_id);
+        $user->set_role($data['role']);
         
         return $user_id;
     }

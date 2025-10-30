@@ -11,6 +11,8 @@ class MBS_Admin {
 		add_action('admin_menu', array($this, 'add_admin_menu'));
 		add_action('wp_ajax_mbs_check_cnp_duplicate', array($this, 'ajax_check_cnp_duplicate'));
 		add_action('wp_ajax_mbs_search_patients', array($this, 'ajax_search_patients'));
+		add_action('wp_ajax_mbs_update_staff_field', array($this, 'ajax_update_staff_field'));
+		add_action('wp_ajax_mbs_update_staff_modal', array($this, 'ajax_update_staff_modal'));
 	}
 	
 	public function add_admin_menu() {
@@ -53,6 +55,15 @@ class MBS_Admin {
 		
 		add_submenu_page(
 			'medical-booking',
+			__('Medical Staff', 'medical-booking-system'),
+			__('Medical Staff', 'medical-booking-system'),
+			'mbs_view_doctors',
+			'medical-booking-staff',
+			array($this, 'render_medical_staff')
+		);
+		
+		add_submenu_page(
+			'medical-booking',
 			__('Services', 'medical-booking-system'),
 			__('Services', 'medical-booking-system'),
 			'mbs_view_services',
@@ -76,6 +87,15 @@ class MBS_Admin {
 			'mbs_view_patients',
 			'medical-booking-families',
 			array($this, 'render_families')
+		);
+		
+		add_submenu_page(
+			'medical-booking',
+			__('Slot Management', 'medical-booking-system'),
+			__('Slot Management', 'medical-booking-system'),
+			'mbs_manage_settings',
+			'medical-booking-slots',
+			array($this, 'render_slot_management')
 		);
 		
 		// Settings submenu is registered by MBS_Settings to avoid duplicates
@@ -125,48 +145,696 @@ class MBS_Admin {
 	
 	public function render_doctors() {
 		echo '<div class="wrap">';
-		echo '<h1>' . esc_html__('Doctors', 'medical-booking-system') . '</h1>';
+		echo '<h1>' . esc_html__('Medical Staff', 'medical-booking-system') . '</h1>';
 		
-		if (isset($_POST['add_doctor_nonce']) && wp_verify_nonce($_POST['add_doctor_nonce'], 'add_doctor_action')) {
-			global $wpdb;
-			$wpdb->insert($wpdb->prefix . 'mbs_doctors', array(
-				'user_id' => 0,
-				'first_name' => sanitize_text_field($_POST['first_name']),
-				'last_name' => sanitize_text_field($_POST['last_name']),
-				'specialty' => sanitize_text_field($_POST['specialty']),
-				'phone' => sanitize_text_field($_POST['phone']),
-				'email' => sanitize_email($_POST['email']),
-				'is_active' => 1
-			));
-			echo '<div class="notice notice-success"><p>Doctor added successfully!</p></div>';
+		// Handle Add/Edit Medical Staff with WordPress User Creation/Update
+		if (isset($_POST['add_doctor_nonce']) && wp_verify_nonce($_POST['add_doctor_nonce'], 'add_doctor_action') && current_user_can('mbs_create_doctors')) {
+			$first_name = sanitize_text_field($_POST['first_name']);
+			$last_name = sanitize_text_field($_POST['last_name']);
+			$cnp = trim($_POST['cnp']);
+			$email = sanitize_email($_POST['email']);
+			$phone = sanitize_text_field($_POST['phone']);
+			$password = sanitize_text_field($_POST['password']);
+			$role = sanitize_text_field($_POST['role']);
+			$doctor_id = (int) $_POST['doctor_id'];
+			$user_id = (int) $_POST['user_id'];
+			$is_edit = !empty($doctor_id);
+			
+			$errors = array();
+			
+			// Validate required fields
+			if (empty($first_name) || empty($last_name)) {
+				$errors[] = __('First name and last name are required.', 'medical-booking-system');
+			}
+			if (!$is_edit && empty($role)) {
+				$errors[] = __('Role is required.', 'medical-booking-system');
+			}
+			if (!$is_edit && !preg_match('/^\d{13}$/', $cnp)) {
+				$errors[] = __('CNP must be exactly 13 digits.', 'medical-booking-system');
+			}
+			if (!empty($email) && !is_email($email)) {
+				$errors[] = __('Invalid email address.', 'medical-booking-system');
+			}
+			
+			// Validate CNP with auth class (only for new doctors)
+			if (!$is_edit) {
+				$auth = MBS_Auth::get_instance();
+				if (!$auth->validate_cnp($cnp)) {
+					$errors[] = __('Invalid CNP format.', 'medical-booking-system');
+				}
+				
+				// Check if CNP already exists
+				if ($auth->get_user_by_cnp($cnp)) {
+					$errors[] = __('CNP already registered.', 'medical-booking-system');
+				}
+			}
+			
+			// Check if email already exists (only for new doctors or if email changed)
+			if (!$is_edit && !empty($email) && email_exists($email)) {
+				$errors[] = __('Email already registered.', 'medical-booking-system');
+			} elseif ($is_edit && !empty($email)) {
+				$existing_user = get_user_by('email', $email);
+				if ($existing_user && $existing_user->ID != $user_id) {
+					$errors[] = __('Email already registered to another user.', 'medical-booking-system');
+				}
+			}
+			
+			if (empty($errors)) {
+				if ($is_edit) {
+					// Update existing doctor
+					global $wpdb;
+					
+					// Update WordPress user
+					wp_update_user(array(
+						'ID' => $user_id,
+						'first_name' => $first_name,
+						'last_name' => $last_name,
+						'user_email' => $email,
+						'display_name' => "Dr. {$first_name} {$last_name}"
+					));
+					
+					// Update doctor record
+					$wpdb->update(
+						$wpdb->prefix . 'mbs_doctors',
+						array(
+							'first_name' => $first_name,
+							'last_name' => $last_name,
+							'phone' => $phone,
+							'email' => $email,
+							'updated_at' => current_time('mysql')
+						),
+						array('id' => $doctor_id),
+						array('%s', '%s', '%s', '%s', '%s'),
+						array('%d')
+					);
+					
+					// Update phone in user phones table
+					$wpdb->update(
+						$wpdb->prefix . 'mbs_user_phones',
+						array('phone' => $phone),
+						array('user_id' => $user_id, 'is_primary' => 1),
+						array('%s'),
+						array('%d', '%d')
+					);
+					
+					echo '<div class="notice notice-success"><p>' . __('Doctor updated successfully!', 'medical-booking-system') . '</p></div>';
+				} else {
+					// Create new doctor
+					// Generate password if not provided
+					if (empty($password)) {
+						$password = substr($cnp, -6); // Last 6 digits of CNP
+					}
+					
+					// Register medical staff using auth class
+					$auth = MBS_Auth::get_instance();
+					$user_id = $auth->register_medical_staff(array(
+						'cnp' => $cnp,
+						'email' => $email,
+						'password' => $password,
+						'first_name' => $first_name,
+						'last_name' => $last_name,
+						'phone' => $phone,
+						'role' => $role
+					));
+					
+					if (is_wp_error($user_id)) {
+						$errors[] = $user_id->get_error_message();
+					} else {
+						// Add to doctors table only if role is doctor
+						if ($role === 'mbs_doctor') {
+							global $wpdb;
+							$wpdb->insert($wpdb->prefix . 'mbs_doctors', array(
+								'user_id' => $user_id,
+								'first_name' => $first_name,
+								'last_name' => $last_name,
+								'phone' => $phone,
+								'email' => $email,
+								'is_active' => 1
+							));
+						}
+						
+						$role_display = ucfirst(str_replace('mbs_', '', $role));
+						echo '<div class="notice notice-success"><p>' . sprintf(__('%s added successfully with WordPress account!', 'medical-booking-system'), $role_display) . '</p></div>';
+					}
+				}
+			}
+			
+			if (!empty($errors)) {
+				echo '<div class="notice notice-error"><p>' . implode('<br>', $errors) . '</p></div>';
+			}
 		}
 		
-		echo '<h2>Add New Doctor</h2>';
-		echo '<form method="post" style="background:#fff;padding:20px;border:1px solid #ccc;max-width:600px;">';
-		wp_nonce_field('add_doctor_action', 'add_doctor_nonce');
-		echo '<p><label>First Name: <input type="text" name="first_name" required style="width:100%;"></label></p>';
-		echo '<p><label>Last Name: <input type="text" name="last_name" required style="width:100%;"></label></p>';
-		echo '<p><label>Specialty: <input type="text" name="specialty" style="width:100%;"></label></p>';
-		echo '<p><label>Phone: <input type="text" name="phone" style="width:100%;"></label></p>';
-		echo '<p><label>Email: <input type="email" name="email" style="width:100%;"></label></p>';
-		echo '<p><button type="submit" class="button button-primary">Add Doctor</button></p>';
-		echo '</form>';
+		// Two-column layout
+		echo '<div style="display: flex; gap: 20px; margin-top: 20px;">';
 		
+		// Left column - Existing Medical Staff List
+		echo '<div style="flex: 1;">';
+		echo '<h2>' . esc_html__('Existing Medical Staff', 'medical-booking-system') . '</h2>';
+		
+		// Display all medical staff (doctors + other staff)
 		global $wpdb;
-		$doctors = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}mbs_doctors ORDER BY id DESC", ARRAY_A);
-		echo '<h2 style="margin-top:30px;">Existing Doctors</h2>';
-		echo '<table class="wp-list-table widefat fixed striped">';
-		echo '<thead><tr><th>ID</th><th>Name</th><th>Specialty</th><th>Phone</th><th>Email</th><th>Active</th></tr></thead><tbody>';
-		foreach ($doctors as $d) {
-			echo '<tr>';
-			echo '<td>' . intval($d['id']) . '</td>';
-			echo '<td>' . esc_html($d['first_name'] . ' ' . $d['last_name']) . '</td>';
-			echo '<td>' . esc_html($d['specialty']) . '</td>';
-			echo '<td>' . esc_html($d['phone']) . '</td>';
-			echo '<td>' . esc_html($d['email']) . '</td>';
-			echo '<td>' . ($d['is_active'] ? 'Yes' : 'No') . '</td>';
+		$all_staff = $wpdb->get_results("
+			SELECT u.ID, u.user_login, u.user_email, u.display_name,
+				   um_cnp.meta_value as cnp,
+				   up.phone,
+				   d.id as doctor_id,
+				   d.first_name as doctor_first_name,
+				   d.last_name as doctor_last_name,
+				   d.phone as doctor_phone,
+				   d.email as doctor_email,
+				   d.is_active
+			FROM {$wpdb->users} u
+			LEFT JOIN {$wpdb->usermeta} um_cnp ON u.ID = um_cnp.user_id AND um_cnp.meta_key = 'mbs_cnp'
+			LEFT JOIN {$wpdb->prefix}mbs_user_phones up ON u.ID = up.user_id AND up.is_primary = 1
+			LEFT JOIN {$wpdb->prefix}mbs_doctors d ON u.ID = d.user_id
+			WHERE u.ID IN (
+				SELECT user_id FROM {$wpdb->usermeta} 
+				WHERE meta_key = 'wp_capabilities' 
+				AND (meta_value LIKE '%mbs_doctor%' OR meta_value LIKE '%mbs_assistant%' OR meta_value LIKE '%mbs_receptionist%' OR meta_value LIKE '%mbs_manager%')
+			)
+			ORDER BY u.display_name ASC
+		", ARRAY_A);
+		
+		echo '<table class="wp-list-table widefat fixed striped mbs-staff-table" style="table-layout: fixed; width: 100%;">';
+		echo '<colgroup>';
+		echo '<col style="width: 60px;">';  // ID - puțin mai larg
+		echo '<col style="width: 180px;">'; // Name - mai larg pentru nume complete
+		echo '<col style="width: 90px;">';  // Role - mai îngust
+		echo '<col style="width: 130px;">'; // Phone - mai larg pentru numere
+		echo '<col style="width: 220px;">'; // Email - mai larg pentru email-uri lungi
+		echo '<col style="width: 160px;">'; // WP Account - mai larg pentru CNP-uri
+		echo '<col style="width: 70px;">';  // Active - mai îngust
+		echo '<col style="width: 90px;">';  // Actions - mai îngust
+		echo '</colgroup>';
+		echo '<thead><tr><th style="text-align:center;">ID</th><th style="text-align:left;">Name</th><th style="text-align:center;">Role</th><th style="text-align:left;">Phone</th><th style="text-align:left;">Email</th><th style="text-align:left;">WP Account</th><th style="text-align:center;">Active</th><th style="text-align:center;">Actions</th></tr></thead><tbody>';
+		foreach ($all_staff as $staff) {
+			// Determine role
+			$user_obj = get_user_by('id', $staff['ID']);
+			$roles = $user_obj->roles;
+			$role_display = '';
+			foreach ($roles as $role) {
+				if (strpos($role, 'mbs_') === 0) {
+					$role_display = ucfirst(str_replace('mbs_', '', $role));
+					break;
+				}
+			}
+			
+			// Use doctor data if available, otherwise use user data
+			$display_name = !empty($staff['doctor_first_name']) ? $staff['doctor_first_name'] . ' ' . $staff['doctor_last_name'] : $staff['display_name'];
+			$phone = !empty($staff['doctor_phone']) ? $staff['doctor_phone'] : $staff['phone'];
+			$email = !empty($staff['doctor_email']) ? $staff['doctor_email'] : $staff['user_email'];
+			$is_active = !empty($staff['is_active']) ? $staff['is_active'] : 1;
+			$staff_id = !empty($staff['doctor_id']) ? $staff['doctor_id'] : $staff['ID'];
+			
+			echo '<tr id="staff-row-' . esc_attr($staff_id) . '">';
+			echo '<td style="text-align: center;">' . esc_html($staff_id) . '</td>';
+			echo '<td class="editable" data-field="name" data-staff-id="' . esc_attr($staff_id) . '" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="' . esc_attr($display_name) . '">' . esc_html($display_name) . '</td>';
+			echo '<td style="text-align: center;"><span class="mbs-badge mbs-badge--' . esc_attr($role_display === 'Doctor' ? 'primary' : 'secondary') . '">' . esc_html($role_display) . '</span></td>';
+			echo '<td class="editable" data-field="phone" data-staff-id="' . esc_attr($staff_id) . '" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="' . esc_attr($phone) . '">' . esc_html($phone) . '</td>';
+			echo '<td class="editable" data-field="email" data-staff-id="' . esc_attr($staff_id) . '" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="' . esc_attr($email) . '">' . esc_html($email) . '</td>';
+			echo '<td style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="' . esc_attr($staff['user_login']) . '">' . ($staff['ID'] > 0 ? '<span style="color:green;">✓ ' . esc_html($staff['user_login']) . '</span>' : '<span style="color:red;">✗ No Account</span>') . '</td>';
+			echo '<td style="text-align: center;">' . ($is_active ? 'Yes' : 'No') . '</td>';
+			echo '<td style="text-align: center;">';
+			echo '<button type="button" class="button button-small edit-staff-btn" data-staff-id="' . esc_attr($staff_id) . '" data-first-name="' . esc_attr($staff['doctor_first_name'] ?: $user_obj->first_name) . '" data-last-name="' . esc_attr($staff['doctor_last_name'] ?: $user_obj->last_name) . '" data-phone="' . esc_attr($phone) . '" data-email="' . esc_attr($email) . '" data-user-id="' . esc_attr($staff['ID']) . '">Edit</button>';
+			echo '</td>';
 			echo '</tr>';
 		}
+		echo '</tbody></table>';
+		echo '</div>';
+		
+		// Right column - Add/Edit Medical Staff Form
+		echo '<div style="flex: 1;">';
+		echo '<h2 id="form-title">' . esc_html__('Add New Medical Staff', 'medical-booking-system') . ' <span class="mbs-badge mbs-badge--primary">' . esc_html__('Creates WP Account', 'medical-booking-system') . '</span></h2>';
+		echo '<p class="mbs-muted" id="form-description">' . esc_html__('This will create both a WordPress user account and medical staff record.', 'medical-booking-system') . '</p>';
+		
+		echo '<form method="post" id="doctor-form" class="mbs-form-grid" style="background:#fff;padding:20px;border:1px solid #ccc;">';
+		wp_nonce_field('add_doctor_action', 'add_doctor_nonce');
+		echo '<input type="hidden" id="doctor-id" name="doctor_id" value="">';
+		echo '<input type="hidden" id="user-id" name="user_id" value="">';
+		
+		// Personal Information Section
+		echo '<div class="mbs-form-section">';
+		echo '<h3>' . esc_html__('Personal Information', 'medical-booking-system') . '</h3>';
+		
+		// Two-column layout for form fields
+		echo '<div style="display: flex; flex-direction: column; gap: 20px;">';
+		
+		// Row 1: CNP and Password
+		echo '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">';
+		echo '<div>';
+		echo '<label for="cnp" style="display: block; margin-bottom: 5px; font-weight: bold;">' . esc_html__('CNP (Personal ID)', 'medical-booking-system') . ' <span style="color:#d63638;">*</span></label>';
+		echo '<input type="text" id="cnp" name="cnp" pattern="\d{13}" title="13 digits" required placeholder="1234567890123" maxlength="13" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;"/>';
+		echo '<div style="font-size:12px; color:#666; margin-top:3px;">' . esc_html__('13-digit Romanian Personal Identification Number (will be used as username)', 'medical-booking-system') . '</div>';
+		echo '</div>';
+		echo '<div>';
+		echo '<label for="password" style="display: block; margin-bottom: 5px; font-weight: bold;">' . esc_html__('Password', 'medical-booking-system') . '</label>';
+		echo '<div style="display: flex; gap: 8px;">';
+		echo '<input type="text" id="password" name="password" placeholder="Auto-generated from CNP" style="flex: 1; padding:8px; border:1px solid #ddd; border-radius:4px;"/>';
+		echo '<button type="button" id="generate-password-btn" class="button" style="white-space: nowrap;">' . esc_html__('Generate', 'medical-booking-system') . '</button>';
+		echo '</div>';
+		echo '<div style="font-size:12px; color:#666; margin-top:3px;">' . esc_html__('Auto-generated from last 6 digits of CNP (can be changed)', 'medical-booking-system') . '</div>';
+		echo '</div>';
+		echo '</div>';
+		
+		// Row 2: First Name and Last Name
+		echo '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">';
+		echo '<div>';
+		echo '<label for="first_name" style="display: block; margin-bottom: 5px; font-weight: bold;">' . esc_html__('First Name', 'medical-booking-system') . ' <span style="color:#d63638;">*</span></label>';
+		echo '<input type="text" id="first_name" name="first_name" required style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;"/>';
+		echo '</div>';
+		echo '<div>';
+		echo '<label for="last_name" style="display: block; margin-bottom: 5px; font-weight: bold;">' . esc_html__('Last Name', 'medical-booking-system') . ' <span style="color:#d63638;">*</span></label>';
+		echo '<input type="text" id="last_name" name="last_name" required style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;"/>';
+		echo '</div>';
+		echo '</div>';
+		
+		// Row 3: Role and Phone
+		echo '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">';
+		echo '<div>';
+		echo '<label for="role" style="display: block; margin-bottom: 5px; font-weight: bold;">' . esc_html__('Role', 'medical-booking-system') . ' <span style="color:#d63638;">*</span></label>';
+		echo '<select id="role" name="role" required style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">';
+		echo '<option value="">' . esc_html__('Select Role', 'medical-booking-system') . '</option>';
+		echo '<option value="mbs_doctor">' . esc_html__('Doctor', 'medical-booking-system') . '</option>';
+		echo '<option value="mbs_assistant">' . esc_html__('Assistant', 'medical-booking-system') . '</option>';
+		echo '<option value="mbs_receptionist">' . esc_html__('Receptionist', 'medical-booking-system') . '</option>';
+		echo '<option value="mbs_manager">' . esc_html__('Manager', 'medical-booking-system') . '</option>';
+		echo '</select>';
+		echo '</div>';
+		echo '<div>';
+		echo '<label for="phone" style="display: block; margin-bottom: 5px; font-weight: bold;">' . esc_html__('Phone', 'medical-booking-system') . '</label>';
+		echo '<input type="text" id="phone" name="phone" placeholder="0712345678" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;"/>';
+		echo '<div style="font-size:12px; color:#666; margin-top:3px;">' . esc_html__('Romanian phone format (07XXXXXXXX)', 'medical-booking-system') . '</div>';
+		echo '</div>';
+		echo '</div>';
+		
+		// Row 4: Email
+		echo '<div style="display: grid; grid-template-columns: 1fr; gap: 20px;">';
+		echo '<div>';
+		echo '<label for="email" style="display: block; margin-bottom: 5px; font-weight: bold;">' . esc_html__('Email', 'medical-booking-system') . '</label>';
+		echo '<input type="email" id="email" name="email" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;"/>';
+		echo '</div>';
+		echo '</div>';
+		
+		echo '</div>'; // End flex container
+		
+		echo '</div>';
+		
+		echo '<p><button type="submit" id="submit-btn" class="button button-primary">' . esc_html__('Add Medical Staff', 'medical-booking-system') . '</button>';
+		echo ' <button type="button" id="cancel-edit-btn" class="button" style="display:none;">' . esc_html__('Cancel Edit', 'medical-booking-system') . '</button></p>';
+		echo '</form>';
+		echo '</div>';
+		
+		echo '</div>'; // End two-column layout
+		
+		// Add Modal for Edit Medical Staff
+		echo '<div id="edit-staff-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999;">';
+		echo '<div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background:white; padding:30px; border-radius:8px; min-width:500px; max-width:90%;">';
+		echo '<h2>Edit Medical Staff</h2>';
+		echo '<form id="modal-staff-form">';
+		echo '<input type="hidden" id="modal-staff-id" name="staff_id" value="">';
+		echo '<input type="hidden" id="modal-user-id" name="user_id" value="">';
+		echo '<div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-bottom:20px;">';
+		echo '<div><label>First Name *</label><input type="text" id="modal-first-name" name="first_name" required style="width:100%; padding:8px;"></div>';
+		echo '<div><label>Last Name *</label><input type="text" id="modal-last-name" name="last_name" required style="width:100%; padding:8px;"></div>';
+		echo '<div><label>Phone</label><input type="text" id="modal-phone" name="phone" style="width:100%; padding:8px;"></div>';
+		echo '<div><label>Email</label><input type="email" id="modal-email" name="email" style="width:100%; padding:8px;"></div>';
+		echo '</div>';
+		echo '<div style="text-align:right;">';
+		echo '<button type="button" id="modal-cancel-btn" class="button" style="margin-right:10px;">Cancel</button>';
+		echo '<button type="submit" id="modal-save-btn" class="button button-primary">Save Changes</button>';
+		echo '</div>';
+		echo '</form>';
+		echo '</div>';
+		echo '</div>';
+		
+		// Add JavaScript for edit functionality
+		echo '<script>
+		jQuery(document).ready(function($) {
+			// Inline editing functionality
+			$(".editable").click(function() {
+				var $this = $(this);
+				var field = $this.data("field");
+				var staffId = $this.data("staff-id");
+				var currentValue = $this.text().trim();
+				
+				if ($this.find("input").length > 0) return; // Already editing
+				
+				var inputType = field === "email" ? "email" : "text";
+				var $input = $("<input type=\"" + inputType + "\" value=\"" + currentValue + "\" style=\"width:100%; border:none; background:transparent;\">");
+				
+				$this.html($input);
+				$input.focus().select();
+				
+				$input.on("blur keypress", function(e) {
+					if (e.type === "keypress" && e.which !== 13) return;
+					
+					var newValue = $input.val().trim();
+					if (newValue !== currentValue) {
+						// Save changes via AJAX
+						$.post(ajaxurl, {
+							action: "mbs_update_staff_field",
+							staff_id: staffId,
+							field: field,
+							value: newValue,
+							nonce: "' . wp_create_nonce('mbs_update_staff') . '"
+						}, function(response) {
+							if (response.success) {
+								$this.text(newValue);
+							} else {
+								$this.text(currentValue);
+								alert("Error updating field: " + response.data);
+							}
+						});
+					} else {
+						$this.text(currentValue);
+					}
+				});
+			});
+			
+			// Modal edit functionality
+			$(".edit-staff-btn").click(function() {
+				var staffId = $(this).data("staff-id");
+				var firstName = $(this).data("first-name");
+				var lastName = $(this).data("last-name");
+				var phone = $(this).data("phone");
+				var email = $(this).data("email");
+				var userId = $(this).data("user-id");
+				
+				// Populate modal
+				$("#modal-staff-id").val(staffId);
+				$("#modal-user-id").val(userId);
+				$("#modal-first-name").val(firstName);
+				$("#modal-last-name").val(lastName);
+				$("#modal-phone").val(phone);
+				$("#modal-email").val(email);
+				
+				// Show modal
+				$("#edit-staff-modal").show();
+			});
+			
+			// Modal cancel
+			$("#modal-cancel-btn").click(function() {
+				$("#edit-staff-modal").hide();
+			});
+			
+			// Modal save
+			$("#modal-staff-form").submit(function(e) {
+				e.preventDefault();
+				
+				var formData = {
+					action: "mbs_update_staff_modal",
+					staff_id: $("#modal-staff-id").val(),
+					user_id: $("#modal-user-id").val(),
+					first_name: $("#modal-first-name").val(),
+					last_name: $("#modal-last-name").val(),
+					phone: $("#modal-phone").val(),
+					email: $("#modal-email").val(),
+					nonce: "' . wp_create_nonce('mbs_update_staff') . '"
+				};
+				
+				$.post(ajaxurl, formData, function(response) {
+					if (response.success) {
+						$("#edit-staff-modal").hide();
+						location.reload(); // Refresh to show updated data
+					} else {
+						alert("Error updating staff: " + response.data);
+					}
+				});
+			});
+			
+			// Close modal on background click
+			$("#edit-staff-modal").click(function(e) {
+				if (e.target === this) {
+					$(this).hide();
+				}
+			});
+			
+			// Auto-generate password from CNP
+			$("#cnp").on("input", function() {
+				var cnp = $(this).val().trim();
+				if (cnp.length === 13 && /^\d{13}$/.test(cnp)) {
+					var password = cnp.substring(7); // Last 6 digits
+					$("#password").val(password);
+				} else if (cnp.length < 13) {
+					$("#password").val("");
+				}
+			});
+			
+			// Manual password generation button
+			$("#generate-password-btn").click(function() {
+				var cnp = $("#cnp").val().trim();
+				if (cnp.length === 13 && /^\d{13}$/.test(cnp)) {
+					var password = cnp.substring(7); // Last 6 digits
+					$("#password").val(password);
+				} else {
+					alert("Please enter a valid 13-digit CNP first.");
+				}
+			});
+			
+			// Form reset functionality (for right column form)
+			$("#cancel-edit-btn").click(function() {
+				resetForm();
+			});
+			
+			function resetForm() {
+				// Clear form
+				$("#doctor-id").val("");
+				$("#user-id").val("");
+				$("#first_name").val("");
+				$("#last_name").val("");
+				$("#phone").val("");
+				$("#email").val("");
+				$("#cnp").val("");
+				$("#password").val("");
+				$("#role").val("");
+				
+				// Reset form title and description
+				$("#form-title").html("Add New Medical Staff <span class=\"mbs-badge mbs-badge--primary\">Creates WP Account</span>");
+				$("#form-description").text("This will create both a WordPress user account and medical staff record.");
+				
+				// Reset submit button
+				$("#submit-btn").text("Add Medical Staff");
+				
+				// Hide cancel button
+				$("#cancel-edit-btn").hide();
+				
+				// Enable CNP and password fields
+				$("#cnp").prop("disabled", false);
+				$("#password").prop("disabled", false);
+			}
+		});
+		</script>';
+		
+		echo '</div>';
+	}
+	
+	public function render_medical_staff() {
+		echo '<div class="wrap">';
+		echo '<h1>' . esc_html__('Medical Staff Management', 'medical-booking-system') . '</h1>';
+		
+		// Handle Add Medical Staff with WordPress User Creation
+		if (isset($_POST['add_staff_nonce']) && wp_verify_nonce($_POST['add_staff_nonce'], 'add_staff_action') && current_user_can('mbs_create_doctors')) {
+			$first_name = sanitize_text_field($_POST['first_name']);
+			$last_name = sanitize_text_field($_POST['last_name']);
+			$cnp = trim($_POST['cnp']);
+			$email = sanitize_email($_POST['email']);
+			$phone = sanitize_text_field($_POST['phone']);
+			$role = sanitize_text_field($_POST['role']);
+			$password = sanitize_text_field($_POST['password']);
+			
+			$errors = array();
+			
+			// Validate required fields
+			if (empty($first_name) || empty($last_name)) {
+				$errors[] = __('First name and last name are required.', 'medical-booking-system');
+			}
+			if (!preg_match('/^\d{13}$/', $cnp)) {
+				$errors[] = __('CNP must be exactly 13 digits.', 'medical-booking-system');
+			}
+			if (!is_email($email)) {
+				$errors[] = __('Invalid email address.', 'medical-booking-system');
+			}
+			if (empty($phone)) {
+				$errors[] = __('Phone number is required.', 'medical-booking-system');
+			}
+			if (empty($role)) {
+				$errors[] = __('Role is required.', 'medical-booking-system');
+			}
+			
+			// Validate role
+			$valid_roles = array('mbs_doctor', 'mbs_assistant', 'mbs_receptionist', 'mbs_manager');
+			if (!in_array($role, $valid_roles)) {
+				$errors[] = __('Invalid role selected.', 'medical-booking-system');
+			}
+			
+			// Validate CNP with auth class
+			$auth = MBS_Auth::get_instance();
+			if (!$auth->validate_cnp($cnp)) {
+				$errors[] = __('Invalid CNP format.', 'medical-booking-system');
+			}
+			
+			// Check if CNP already exists
+			if ($auth->get_user_by_cnp($cnp)) {
+				$errors[] = __('CNP already registered.', 'medical-booking-system');
+			}
+			
+			// Check if email already exists
+			if (email_exists($email)) {
+				$errors[] = __('Email already registered.', 'medical-booking-system');
+			}
+			
+			if (empty($errors)) {
+				// Generate password if not provided
+				if (empty($password)) {
+					$password = substr($cnp, -6); // Last 6 digits of CNP
+				}
+				
+				// Register medical staff using auth class
+				$user_id = $auth->register_medical_staff(array(
+					'cnp' => $cnp,
+					'email' => $email,
+					'password' => $password,
+					'first_name' => $first_name,
+					'last_name' => $last_name,
+					'phone' => $phone,
+					'role' => $role
+				));
+				
+				if (is_wp_error($user_id)) {
+					$errors[] = $user_id->get_error_message();
+				} else {
+					// Also add to doctors table if it's a doctor (for backward compatibility)
+					if ($role === 'mbs_doctor') {
+						global $wpdb;
+						$wpdb->insert($wpdb->prefix . 'mbs_doctors', array(
+							'user_id' => $user_id,
+							'first_name' => $first_name,
+							'last_name' => $last_name,
+							'phone' => $phone,
+							'email' => $email,
+							'is_active' => 1
+						));
+					}
+					
+					echo '<div class="notice notice-success"><p>' . sprintf(__('%s added successfully with WordPress account!', 'medical-booking-system'), ucfirst(str_replace('mbs_', '', $role))) . '</p></div>';
+				}
+			}
+			
+			if (!empty($errors)) {
+				echo '<div class="notice notice-error"><p>' . implode('<br>', $errors) . '</p></div>';
+			}
+		}
+		
+		echo '<h2>' . esc_html__('Add New Medical Staff', 'medical-booking-system') . ' <span class="mbs-badge mbs-badge--primary">' . esc_html__('Creates WP Account', 'medical-booking-system') . '</span></h2>';
+		echo '<p class="mbs-muted">' . esc_html__('This will create both a WordPress user account and medical staff record.', 'medical-booking-system') . '</p>';
+		
+		echo '<form method="post" class="mbs-form-grid" style="background:#fff;padding:20px;border:1px solid #ccc;max-width:800px;">';
+		wp_nonce_field('add_staff_action', 'add_staff_nonce');
+		
+		// Personal Information Section
+		echo '<div class="mbs-form-section">';
+		echo '<h3>' . esc_html__('Personal Information', 'medical-booking-system') . '</h3>';
+		
+		// CNP and Password (same row)
+		echo '<div class="mbs-form-row">';
+		echo '<div class="mbs-form-field">';
+		echo '<label for="cnp">' . esc_html__('CNP (Personal ID)', 'medical-booking-system') . ' <span style="color:#d63638;">*</span></label>';
+		echo '<input type="text" id="cnp" name="cnp" pattern="\d{13}" title="13 digits" required placeholder="1234567890123" maxlength="13" style="width:100%;"/>';
+		echo '<div class="description">' . esc_html__('13-digit Romanian Personal Identification Number (will be used as username)', 'medical-booking-system') . '</div>';
+		echo '</div>';
+		echo '<div class="mbs-form-field">';
+		echo '<label for="password">' . esc_html__('Password', 'medical-booking-system') . '</label>';
+		echo '<input type="text" id="password" name="password" placeholder="Auto-generated from CNP" style="width:100%;"/>';
+		echo '<div class="description">' . esc_html__('Auto-generated from last 6 digits of CNP (can be changed)', 'medical-booking-system') . '</div>';
+		echo '</div>';
+		echo '</div>';
+		
+		// Name fields
+		echo '<div class="mbs-form-row">';
+		echo '<div class="mbs-form-field">';
+		echo '<label for="first_name">' . esc_html__('First Name', 'medical-booking-system') . ' <span style="color:#d63638;">*</span></label>';
+		echo '<input type="text" id="first_name" name="first_name" required style="width:100%;"/>';
+		echo '</div>';
+		echo '<div class="mbs-form-field">';
+		echo '<label for="last_name">' . esc_html__('Last Name', 'medical-booking-system') . ' <span style="color:#d63638;">*</span></label>';
+		echo '<input type="text" id="last_name" name="last_name" required style="width:100%;"/>';
+		echo '</div>';
+		echo '</div>';
+		
+		// Contact Information
+		echo '<div class="mbs-form-row">';
+		echo '<div class="mbs-form-field">';
+		echo '<label for="email">' . esc_html__('Email', 'medical-booking-system') . ' <span style="color:#d63638;">*</span></label>';
+		echo '<input type="email" id="email" name="email" required style="width:100%;"/>';
+		echo '</div>';
+		echo '<div class="mbs-form-field">';
+		echo '<label for="phone">' . esc_html__('Phone', 'medical-booking-system') . ' <span style="color:#d63638;">*</span></label>';
+		echo '<input type="text" id="phone" name="phone" required placeholder="0712345678" style="width:100%;"/>';
+		echo '<div class="description">' . esc_html__('Romanian phone format (07XXXXXXXX)', 'medical-booking-system') . '</div>';
+		echo '</div>';
+		echo '</div>';
+		
+		// Role and Specialty
+		echo '<div class="mbs-form-row">';
+		echo '<div class="mbs-form-field">';
+		echo '<label for="role">' . esc_html__('Role', 'medical-booking-system') . ' <span style="color:#d63638;">*</span></label>';
+		echo '<select id="role" name="role" required style="width:100%;">';
+		echo '<option value="">' . esc_html__('Select Role', 'medical-booking-system') . '</option>';
+		echo '<option value="mbs_doctor">' . esc_html__('Doctor', 'medical-booking-system') . '</option>';
+		echo '<option value="mbs_assistant">' . esc_html__('Medical Assistant', 'medical-booking-system') . '</option>';
+		echo '<option value="mbs_receptionist">' . esc_html__('Receptionist', 'medical-booking-system') . '</option>';
+		echo '<option value="mbs_manager">' . esc_html__('Manager', 'medical-booking-system') . '</option>';
+		echo '</select>';
+		echo '</div>';
+		echo '</div>';
+		
+		echo '</div>';
+		
+		echo '<p><button type="submit" class="button button-primary">' . esc_html__('Add Medical Staff', 'medical-booking-system') . '</button></p>';
+		echo '</form>';
+		
+		// Display existing medical staff
+		global $wpdb;
+		$staff = $wpdb->get_results("
+			SELECT u.ID, u.user_login, u.user_email, u.first_name, u.last_name, u.display_name,
+				   um_cnp.meta_value as cnp,
+				   up.phone
+			FROM {$wpdb->users} u
+			LEFT JOIN {$wpdb->usermeta} um_cnp ON u.ID = um_cnp.user_id AND um_cnp.meta_key = 'mbs_cnp'
+			LEFT JOIN {$wpdb->prefix}mbs_user_phones up ON u.ID = up.user_id AND up.is_primary = 1
+			WHERE u.ID IN (
+				SELECT user_id FROM {$wpdb->usermeta} 
+				WHERE meta_key = 'wp_capabilities' 
+				AND (meta_value LIKE '%mbs_doctor%' OR meta_value LIKE '%mbs_assistant%' OR meta_value LIKE '%mbs_receptionist%' OR meta_value LIKE '%mbs_manager%')
+			)
+			ORDER BY u.display_name ASC
+		", ARRAY_A);
+		
+		echo '<h2 style="margin-top:30px;">' . esc_html__('Existing Medical Staff', 'medical-booking-system') . '</h2>';
+		echo '<table class="wp-list-table widefat fixed striped">';
+		echo '<thead><tr><th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th>CNP</th><th>Username</th></tr></thead><tbody>';
+		
+		foreach ($staff as $member) {
+			$user = get_user_by('id', $member['ID']);
+			$roles = $user->roles;
+			$role_display = '';
+			foreach ($roles as $role) {
+				if (strpos($role, 'mbs_') === 0) {
+					$role_display = ucfirst(str_replace('mbs_', '', $role));
+					break;
+				}
+			}
+			
+			echo '<tr>';
+			echo '<td>' . esc_html($member['display_name']) . '</td>';
+			echo '<td>' . esc_html($role_display) . '</td>';
+			echo '<td>' . esc_html($member['phone']) . '</td>';
+			echo '<td>' . esc_html($member['user_email']) . '</td>';
+			echo '<td>' . esc_html($member['cnp']) . '</td>';
+			echo '<td>' . esc_html($member['user_login']) . '</td>';
+			echo '</tr>';
+		}
+		
 		echo '</tbody></table>';
 		echo '</div>';
 	}
@@ -200,9 +868,23 @@ class MBS_Admin {
 		.mbs-toolbar{display:flex;gap:12px;align-items:center;margin:12px 0}
 		.mbs-badge{display:inline-block;padding:4px 12px;border-radius:20px;background:#f0f0f1;color:#1d2327;font-size:12px;font-weight:500}
 		.mbs-badge--primary{background:#2271b1;color:#fff}
+		.mbs-badge--secondary{background:#f0f0f1;color:#1d2327}
 		.mbs-muted{color:#50575e;font-size:14px}
-		.mbs-table thead th{font-weight:600;background:#f8f9fa;border-bottom:2px solid #e1e5e9}
-		.mbs-table td,.mbs-table th{padding:12px 16px;border-bottom:1px solid #f0f0f1}
+		.mbs-table thead th{font-weight:600;background:#f8f9fa;border-bottom:2px solid #e1e5e9;text-align:left;padding:12px 8px}
+		.mbs-table td,.mbs-table th{padding:12px 8px;border-bottom:1px solid #f0f0f1;vertical-align:top}
+		.mbs-staff-table thead th{text-align:center;font-size:13px;font-weight:600;background:#f1f1f1;border-bottom:2px solid #ddd}
+		.mbs-staff-table td{text-align:center;font-size:13px;padding:10px 6px}
+		.mbs-staff-table td:first-child{text-align:center}
+		.mbs-staff-table td:nth-child(2){text-align:left}
+		.mbs-staff-table td:nth-child(3){text-align:center !important}
+		.mbs-staff-table td:nth-child(4){text-align:left}
+		.mbs-staff-table td:nth-child(5){text-align:left}
+		.mbs-staff-table td:nth-child(6){text-align:left}
+		.mbs-staff-table td:nth-child(7){text-align:center}
+		.mbs-staff-table td:nth-child(8){text-align:center}
+		.mbs-staff-table .mbs-badge{display:inline-block;padding:4px 8px;border-radius:12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px}
+		.mbs-staff-table .mbs-badge--primary{background:#2271b1;color:#fff}
+		.mbs-staff-table .mbs-badge--secondary{background:#f0f0f1;color:#1d2327;border:1px solid #ddd}
 		.mbs-actions a{margin-right:8px}
 		.mbs-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:20px}
 		.mbs-form-section{background:#f8f9fa;padding:20px;border-radius:6px;border-left:4px solid #2271b1}
@@ -404,7 +1086,7 @@ class MBS_Admin {
 				if (!$user) {
 					$temp_email = $email !== '' ? $email : ('patient' . substr(md5($cnp), 0, 8) . '@noemail.local');
 					// Use provided password or generate from CNP (last 7 digits)
-					$user_password = !empty($password) ? $password : substr($cnp, 6, 7);
+					$user_password = !empty($password) ? $password : substr($cnp, -6);
 					$user_id = wp_insert_user(array(
 						'user_login' => $cnp,
 						'user_pass' => $user_password,
@@ -495,7 +1177,7 @@ class MBS_Admin {
         echo '<div class="mbs-form-field">';
         echo '<label for="password">' . esc_html__('Password', 'medical-booking-system') . '</label>';
         echo '<input type="text" id="password" name="password" placeholder="Auto-generated from CNP" style="background:#fff;color:#000;"/>';
-        echo '<div class="description">' . esc_html__('Auto-generated from last 7 digits of CNP (can be changed)', 'medical-booking-system') . '</div>';
+        echo '<div class="description">' . esc_html__('Auto-generated from last 6 digits of CNP (can be changed)', 'medical-booking-system') . '</div>';
         echo '</div>';
         echo '</div>';
         
@@ -2026,5 +2708,808 @@ class MBS_Admin {
 		);
 		
 		return isset($labels[$relationship_type]) ? $labels[$relationship_type] : $relationship_type;
+	}
+	
+	/**
+	 * Render Slot Management page
+	 */
+	public function render_slot_management() {
+		echo '<div class="wrap">';
+		echo '<h1>' . esc_html__('Slot Management', 'medical-booking-system') . '</h1>';
+		
+		// Handle form submissions
+		if (isset($_POST['action']) && wp_verify_nonce($_POST['_wpnonce'], 'mbs_slot_management')) {
+			$this->handle_slot_management_form();
+		}
+		
+		// Get current tab
+		$tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'settings';
+		
+		// Display tabs
+		echo '<nav class="nav-tab-wrapper">';
+		echo '<a href="?page=medical-booking-slots&tab=settings" class="nav-tab ' . ($tab === 'settings' ? 'nav-tab-active' : '') . '">' . esc_html__('Slot Settings', 'medical-booking-system') . '</a>';
+		echo '<a href="?page=medical-booking-slots&tab=hidden" class="nav-tab ' . ($tab === 'hidden' ? 'nav-tab-active' : '') . '">' . esc_html__('Hidden Slots', 'medical-booking-system') . '</a>';
+		echo '<a href="?page=medical-booking-slots&tab=staff" class="nav-tab ' . ($tab === 'staff' ? 'nav-tab-active' : '') . '">' . esc_html__('Staff Only Slots', 'medical-booking-system') . '</a>';
+		echo '</nav>';
+		
+		// Display content based on tab
+		switch ($tab) {
+			case 'settings':
+				$this->render_slot_settings_tab();
+				break;
+			case 'hidden':
+				$this->render_hidden_slots_tab();
+				break;
+			case 'staff':
+				$this->render_staff_slots_tab();
+				break;
+			default:
+				$this->render_slot_settings_tab();
+		}
+		
+		echo '</div>';
+	}
+	
+	/**
+	 * Handle slot management form submissions
+	 */
+	private function handle_slot_management_form() {
+		global $wpdb;
+		
+		$action = sanitize_text_field($_POST['action']);
+		
+		switch ($action) {
+			case 'save_slot_settings':
+				$this->save_slot_settings();
+				break;
+			case 'add_hidden_slot':
+				$this->add_hidden_slot();
+				break;
+			case 'add_staff_slot':
+				$this->add_staff_slot();
+				break;
+			case 'delete_slot':
+				$this->delete_slot();
+				break;
+		}
+	}
+	
+	/**
+	 * Render Slot Settings tab
+	 */
+	private function render_slot_settings_tab() {
+		global $wpdb;
+		
+		echo '<h2>' . esc_html__('Slot Settings per Doctor-Service', 'medical-booking-system') . '</h2>';
+		
+		// Get all doctors
+		$doctors = $wpdb->get_results("SELECT id, first_name, last_name FROM {$wpdb->prefix}mbs_doctors WHERE is_active=1 ORDER BY first_name", ARRAY_A);
+		
+		if (empty($doctors)) {
+			echo '<p>' . esc_html__('No doctors found. Please add doctors first.', 'medical-booking-system') . '</p>';
+			return;
+		}
+		
+		// Get all services
+		$services = $wpdb->get_results("SELECT id, name, duration FROM {$wpdb->prefix}mbs_services WHERE is_active=1 ORDER BY name", ARRAY_A);
+		
+		if (empty($services)) {
+			echo '<p>' . esc_html__('No services found. Please add services first.', 'medical-booking-system') . '</p>';
+			return;
+		}
+		
+		echo '<div class="mbs-slot-settings">';
+		
+		foreach ($doctors as $doctor) {
+			echo '<div class="doctor-settings" style="margin-bottom: 30px; padding: 20px; border: 1px solid #ddd; border-radius: 5px;">';
+			echo '<h3>' . esc_html($doctor['first_name'] . ' ' . $doctor['last_name']) . '</h3>';
+			
+			foreach ($services as $service) {
+				// Get current settings
+				$settings = $wpdb->get_row($wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}mbs_doctor_slot_settings 
+					 WHERE doctor_id=%d AND service_id=%d",
+					$doctor['id'], $service['id']
+				), ARRAY_A);
+				
+				if (!$settings) {
+					// Create default settings
+					$wpdb->insert($wpdb->prefix . 'mbs_doctor_slot_settings', array(
+						'doctor_id' => $doctor['id'],
+						'service_id' => $service['id'],
+						'slot_interval' => max(30, $service['duration']),
+						'buffer_time' => 0,
+						'max_advance_days' => 30,
+						'min_advance_hours' => 2,
+						'is_active' => 1
+					));
+					
+					$settings = array(
+						'slot_interval' => max(30, $service['duration']),
+						'buffer_time' => 0,
+						'max_advance_days' => 30,
+						'min_advance_hours' => 2,
+						'is_active' => 1
+					);
+				}
+				
+				echo '<div class="service-setting" style="margin-bottom: 15px; padding: 10px; background: #f9f9f9;">';
+				echo '<h4>' . esc_html($service['name']) . ' (' . $service['duration'] . ' min)</h4>';
+				
+				echo '<form method="post" style="display: inline-block;">';
+				wp_nonce_field('mbs_slot_management');
+				echo '<input type="hidden" name="action" value="save_slot_settings">';
+				echo '<input type="hidden" name="doctor_id" value="' . $doctor['id'] . '">';
+				echo '<input type="hidden" name="service_id" value="' . $service['id'] . '">';
+				
+				echo '<table class="form-table">';
+				echo '<tr>';
+				echo '<th><label>' . esc_html__('Slot Interval (minutes)', 'medical-booking-system') . '</label></th>';
+				echo '<td><input type="number" name="slot_interval" value="' . esc_attr($settings['slot_interval']) . '" min="15" max="120" step="15"></td>';
+				echo '</tr>';
+				echo '<tr>';
+				echo '<th><label>' . esc_html__('Buffer Time (minutes)', 'medical-booking-system') . '</label></th>';
+				echo '<td><input type="number" name="buffer_time" value="' . esc_attr($settings['buffer_time']) . '" min="0" max="30" step="5"></td>';
+				echo '</tr>';
+				echo '<tr>';
+				echo '<th><label>' . esc_html__('Max Advance Days', 'medical-booking-system') . '</label></th>';
+				echo '<td><input type="number" name="max_advance_days" value="' . esc_attr($settings['max_advance_days']) . '" min="1" max="365"></td>';
+				echo '</tr>';
+				echo '<tr>';
+				echo '<th><label>' . esc_html__('Min Advance Hours', 'medical-booking-system') . '</label></th>';
+				echo '<td><input type="number" name="min_advance_hours" value="' . esc_attr($settings['min_advance_hours']) . '" min="1" max="168"></td>';
+				echo '</tr>';
+				echo '<tr>';
+				echo '<th><label>' . esc_html__('Active', 'medical-booking-system') . '</label></th>';
+				echo '<td><input type="checkbox" name="is_active" value="1" ' . checked($settings['is_active'], 1, false) . '></td>';
+				echo '</tr>';
+				echo '</table>';
+				
+				echo '<p><button type="submit" class="button button-primary">' . esc_html__('Save Settings', 'medical-booking-system') . '</button></p>';
+				echo '</form>';
+				
+				echo '</div>';
+			}
+			
+			echo '</div>';
+		}
+		
+		echo '</div>';
+	}
+	
+	/**
+	 * Render Hidden Slots tab
+	 */
+	private function render_hidden_slots_tab() {
+		global $wpdb;
+		
+		echo '<h2>' . esc_html__('Hidden Slots Management', 'medical-booking-system') . '</h2>';
+		
+		// Add new hidden slot form
+		echo '<div class="add-hidden-slot" style="margin-bottom: 30px; padding: 20px; border: 1px solid #ddd; border-radius: 5px;">';
+		echo '<h3>' . esc_html__('Add Hidden Slot', 'medical-booking-system') . '</h3>';
+		
+		echo '<form method="post">';
+		wp_nonce_field('mbs_slot_management');
+		echo '<input type="hidden" name="action" value="add_hidden_slot">';
+		
+		echo '<table class="form-table">';
+		echo '<tr>';
+		echo '<th><label>' . esc_html__('Doctor', 'medical-booking-system') . '</label></th>';
+		echo '<td>';
+		echo '<select name="doctor_id" required>';
+		echo '<option value="">' . esc_html__('Select Doctor', 'medical-booking-system') . '</option>';
+		
+		$doctors = $wpdb->get_results("SELECT id, first_name, last_name FROM {$wpdb->prefix}mbs_doctors WHERE is_active=1 ORDER BY first_name", ARRAY_A);
+		foreach ($doctors as $doctor) {
+			echo '<option value="' . $doctor['id'] . '">' . esc_html($doctor['first_name'] . ' ' . $doctor['last_name']) . '</option>';
+		}
+		echo '</select>';
+		echo '</td>';
+		echo '</tr>';
+		
+		echo '<tr>';
+		echo '<th><label>' . esc_html__('Slot Time', 'medical-booking-system') . '</label></th>';
+		echo '<td><input type="time" name="slot_time" required></td>';
+		echo '</tr>';
+		
+		echo '<tr>';
+		echo '<th><label>' . esc_html__('Day of Week', 'medical-booking-system') . '</label></th>';
+		echo '<td>';
+		echo '<select name="day_of_week">';
+		echo '<option value="">' . esc_html__('Specific Date Only', 'medical-booking-system') . '</option>';
+		$days = array('Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday');
+		foreach ($days as $i => $day) {
+			echo '<option value="' . $i . '">' . esc_html($day) . '</option>';
+		}
+		echo '</select>';
+		echo '</td>';
+		echo '</tr>';
+		
+		echo '<tr>';
+		echo '<th><label>' . esc_html__('Specific Date', 'medical-booking-system') . '</label></th>';
+		echo '<td><input type="date" name="specific_date"></td>';
+		echo '</tr>';
+		
+		echo '<tr>';
+		echo '<th><label>' . esc_html__('Reason', 'medical-booking-system') . '</label></th>';
+		echo '<td><input type="text" name="reason" placeholder="e.g., Pauză masă, Concediu" required></td>';
+		echo '</tr>';
+		
+		echo '<tr>';
+		echo '<th><label>' . esc_html__('Recurring', 'medical-booking-system') . '</label></th>';
+		echo '<td><input type="checkbox" name="is_recurring" value="1"> ' . esc_html__('Repeat weekly', 'medical-booking-system') . '</td>';
+		echo '</tr>';
+		echo '</table>';
+		
+		echo '<p><button type="submit" class="button button-primary">' . esc_html__('Add Hidden Slot', 'medical-booking-system') . '</button></p>';
+		echo '</form>';
+		echo '</div>';
+		
+		// Display existing hidden slots
+		$this->display_hidden_slots();
+	}
+	
+	/**
+	 * Render Staff Only Slots tab
+	 */
+	private function render_staff_slots_tab() {
+		global $wpdb;
+		
+		echo '<h2>' . esc_html__('Staff Only Slots Management', 'medical-booking-system') . '</h2>';
+		
+		// Add new staff slot form
+		echo '<div class="add-staff-slot" style="margin-bottom: 30px; padding: 20px; border: 1px solid #ddd; border-radius: 5px;">';
+		echo '<h3>' . esc_html__('Add Staff Only Slot', 'medical-booking-system') . '</h3>';
+		
+		echo '<form method="post">';
+		wp_nonce_field('mbs_slot_management');
+		echo '<input type="hidden" name="action" value="add_staff_slot">';
+		
+		echo '<table class="form-table">';
+		echo '<tr>';
+		echo '<th><label>' . esc_html__('Doctor', 'medical-booking-system') . '</label></th>';
+		echo '<td>';
+		echo '<select name="doctor_id" required>';
+		echo '<option value="">' . esc_html__('Select Doctor', 'medical-booking-system') . '</option>';
+		
+		$doctors = $wpdb->get_results("SELECT id, first_name, last_name FROM {$wpdb->prefix}mbs_doctors WHERE is_active=1 ORDER BY first_name", ARRAY_A);
+		foreach ($doctors as $doctor) {
+			echo '<option value="' . $doctor['id'] . '">' . esc_html($doctor['first_name'] . ' ' . $doctor['last_name']) . '</option>';
+		}
+		echo '</select>';
+		echo '</td>';
+		echo '</tr>';
+		
+		echo '<tr>';
+		echo '<th><label>' . esc_html__('Slot Time', 'medical-booking-system') . '</label></th>';
+		echo '<td><input type="time" name="slot_time" required></td>';
+		echo '</tr>';
+		
+		echo '<tr>';
+		echo '<th><label>' . esc_html__('Day of Week', 'medical-booking-system') . '</label></th>';
+		echo '<td>';
+		echo '<select name="day_of_week">';
+		echo '<option value="">' . esc_html__('Specific Date Only', 'medical-booking-system') . '</option>';
+		$days = array('Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday');
+		foreach ($days as $i => $day) {
+			echo '<option value="' . $i . '">' . esc_html($day) . '</option>';
+		}
+		echo '</select>';
+		echo '</td>';
+		echo '</tr>';
+		
+		echo '<tr>';
+		echo '<th><label>' . esc_html__('Specific Date', 'medical-booking-system') . '</label></th>';
+		echo '<td><input type="date" name="specific_date"></td>';
+		echo '</tr>';
+		
+		echo '<tr>';
+		echo '<th><label>' . esc_html__('Reason', 'medical-booking-system') . '</label></th>';
+		echo '<td><input type="text" name="reason" placeholder="e.g., Staff meeting, Training" required></td>';
+		echo '</tr>';
+		
+		echo '<tr>';
+		echo '<th><label>' . esc_html__('Staff Notes', 'medical-booking-system') . '</label></th>';
+		echo '<td><textarea name="staff_notes" rows="3" cols="50" placeholder="Internal notes for staff..."></textarea></td>';
+		echo '</tr>';
+		
+		echo '<tr>';
+		echo '<th><label>' . esc_html__('Recurring', 'medical-booking-system') . '</label></th>';
+		echo '<td><input type="checkbox" name="is_recurring" value="1"> ' . esc_html__('Repeat weekly', 'medical-booking-system') . '</td>';
+		echo '</tr>';
+		echo '</table>';
+		
+		echo '<p><button type="submit" class="button button-primary">' . esc_html__('Add Staff Slot', 'medical-booking-system') . '</button></p>';
+		echo '</form>';
+		echo '</div>';
+		
+		// Display existing staff slots
+		$this->display_staff_slots();
+	}
+	
+	/**
+	 * Display existing hidden slots
+	 */
+	private function display_hidden_slots() {
+		global $wpdb;
+		
+		$hidden_slots = $wpdb->get_results("
+			SELECT hs.*, d.first_name, d.last_name 
+			FROM {$wpdb->prefix}mbs_hidden_slots hs
+			JOIN {$wpdb->prefix}mbs_doctors d ON hs.doctor_id = d.id
+			WHERE hs.slot_type = 'hidden'
+			ORDER BY d.first_name, hs.slot_time
+		", ARRAY_A);
+		
+		if (empty($hidden_slots)) {
+			echo '<p>' . esc_html__('No hidden slots configured.', 'medical-booking-system') . '</p>';
+			return;
+		}
+		
+		echo '<h3>' . esc_html__('Existing Hidden Slots', 'medical-booking-system') . '</h3>';
+		echo '<table class="wp-list-table widefat fixed striped">';
+		echo '<thead><tr><th>Doctor</th><th>Time</th><th>Day/Date</th><th>Reason</th><th>Recurring</th><th>Actions</th></tr></thead><tbody>';
+		
+		foreach ($hidden_slots as $slot) {
+			$day_text = '';
+			if ($slot['day_of_week'] !== null) {
+				$days = array('Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday');
+				$day_text = $days[$slot['day_of_week']];
+			}
+			if ($slot['specific_date']) {
+				$day_text .= ($day_text ? ' / ' : '') . $slot['specific_date'];
+			}
+			
+			echo '<tr>';
+			echo '<td>' . esc_html($slot['first_name'] . ' ' . $slot['last_name']) . '</td>';
+			echo '<td>' . esc_html($slot['slot_time']) . '</td>';
+			echo '<td>' . esc_html($day_text) . '</td>';
+			echo '<td>' . esc_html($slot['reason']) . '</td>';
+			echo '<td>' . ($slot['is_recurring'] ? 'Yes' : 'No') . '</td>';
+			echo '<td>';
+			echo '<form method="post" style="display: inline;">';
+			wp_nonce_field('mbs_slot_management');
+			echo '<input type="hidden" name="action" value="delete_slot">';
+			echo '<input type="hidden" name="slot_id" value="' . $slot['id'] . '">';
+			echo '<button type="submit" class="button button-small" onclick="return confirm(\'Are you sure?\')">' . esc_html__('Delete', 'medical-booking-system') . '</button>';
+			echo '</form>';
+			echo '</td>';
+			echo '</tr>';
+		}
+		
+		echo '</tbody></table>';
+	}
+	
+	/**
+	 * Display existing staff slots
+	 */
+	private function display_staff_slots() {
+		global $wpdb;
+		
+		$staff_slots = $wpdb->get_results("
+			SELECT hs.*, d.first_name, d.last_name 
+			FROM {$wpdb->prefix}mbs_hidden_slots hs
+			JOIN {$wpdb->prefix}mbs_doctors d ON hs.doctor_id = d.id
+			WHERE hs.slot_type = 'staff_only'
+			ORDER BY d.first_name, hs.slot_time
+		", ARRAY_A);
+		
+		if (empty($staff_slots)) {
+			echo '<p>' . esc_html__('No staff only slots configured.', 'medical-booking-system') . '</p>';
+			return;
+		}
+		
+		echo '<h3>' . esc_html__('Existing Staff Only Slots', 'medical-booking-system') . '</h3>';
+		echo '<table class="wp-list-table widefat fixed striped">';
+		echo '<thead><tr><th>Doctor</th><th>Time</th><th>Day/Date</th><th>Reason</th><th>Staff Notes</th><th>Recurring</th><th>Actions</th></tr></thead><tbody>';
+		
+		foreach ($staff_slots as $slot) {
+			$day_text = '';
+			if ($slot['day_of_week'] !== null) {
+				$days = array('Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday');
+				$day_text = $days[$slot['day_of_week']];
+			}
+			if ($slot['specific_date']) {
+				$day_text .= ($day_text ? ' / ' : '') . $slot['specific_date'];
+			}
+			
+			echo '<tr>';
+			echo '<td>' . esc_html($slot['first_name'] . ' ' . $slot['last_name']) . '</td>';
+			echo '<td>' . esc_html($slot['slot_time']) . '</td>';
+			echo '<td>' . esc_html($day_text) . '</td>';
+			echo '<td>' . esc_html($slot['reason']) . '</td>';
+			echo '<td>' . esc_html($slot['staff_notes']) . '</td>';
+			echo '<td>' . ($slot['is_recurring'] ? 'Yes' : 'No') . '</td>';
+			echo '<td>';
+			echo '<form method="post" style="display: inline;">';
+			wp_nonce_field('mbs_slot_management');
+			echo '<input type="hidden" name="action" value="delete_slot">';
+			echo '<input type="hidden" name="slot_id" value="' . $slot['id'] . '">';
+			echo '<button type="submit" class="button button-small" onclick="return confirm(\'Are you sure?\')">' . esc_html__('Delete', 'medical-booking-system') . '</button>';
+			echo '</form>';
+			echo '</td>';
+			echo '</tr>';
+		}
+		
+		echo '</tbody></table>';
+	}
+	
+	/**
+	 * Save slot settings
+	 */
+	private function save_slot_settings() {
+		global $wpdb;
+		
+		$doctor_id = intval($_POST['doctor_id']);
+		$service_id = intval($_POST['service_id']);
+		$slot_interval = intval($_POST['slot_interval']);
+		$buffer_time = intval($_POST['buffer_time']);
+		$max_advance_days = intval($_POST['max_advance_days']);
+		$min_advance_hours = intval($_POST['min_advance_hours']);
+		$is_active = isset($_POST['is_active']) ? 1 : 0;
+		
+		$result = $wpdb->replace($wpdb->prefix . 'mbs_doctor_slot_settings', array(
+			'doctor_id' => $doctor_id,
+			'service_id' => $service_id,
+			'slot_interval' => $slot_interval,
+			'buffer_time' => $buffer_time,
+			'max_advance_days' => $max_advance_days,
+			'min_advance_hours' => $min_advance_hours,
+			'is_active' => $is_active
+		));
+		
+		if ($result !== false) {
+			echo '<div class="notice notice-success"><p>' . esc_html__('Slot settings saved successfully!', 'medical-booking-system') . '</p></div>';
+		} else {
+			echo '<div class="notice notice-error"><p>' . esc_html__('Error saving slot settings.', 'medical-booking-system') . '</p></div>';
+		}
+	}
+	
+	/**
+	 * Add hidden slot
+	 */
+	private function add_hidden_slot() {
+		global $wpdb;
+		
+		$doctor_id = intval($_POST['doctor_id']);
+		$slot_time = sanitize_text_field($_POST['slot_time']);
+		$day_of_week = !empty($_POST['day_of_week']) ? intval($_POST['day_of_week']) : null;
+		$specific_date = !empty($_POST['specific_date']) ? sanitize_text_field($_POST['specific_date']) : null;
+		$reason = sanitize_text_field($_POST['reason']);
+		$is_recurring = isset($_POST['is_recurring']) ? 1 : 0;
+		
+		$result = $wpdb->insert($wpdb->prefix . 'mbs_hidden_slots', array(
+			'doctor_id' => $doctor_id,
+			'slot_time' => $slot_time,
+			'day_of_week' => $day_of_week,
+			'specific_date' => $specific_date,
+			'reason' => $reason,
+			'slot_type' => 'hidden',
+			'is_recurring' => $is_recurring
+		));
+		
+		if ($result !== false) {
+			echo '<div class="notice notice-success"><p>' . esc_html__('Hidden slot added successfully!', 'medical-booking-system') . '</p></div>';
+		} else {
+			echo '<div class="notice notice-error"><p>' . esc_html__('Error adding hidden slot.', 'medical-booking-system') . '</p></div>';
+		}
+	}
+	
+	/**
+	 * Add staff slot
+	 */
+	private function add_staff_slot() {
+		global $wpdb;
+		
+		$doctor_id = intval($_POST['doctor_id']);
+		$slot_time = sanitize_text_field($_POST['slot_time']);
+		$day_of_week = !empty($_POST['day_of_week']) ? intval($_POST['day_of_week']) : null;
+		$specific_date = !empty($_POST['specific_date']) ? sanitize_text_field($_POST['specific_date']) : null;
+		$reason = sanitize_text_field($_POST['reason']);
+		$staff_notes = sanitize_textarea_field($_POST['staff_notes']);
+		$is_recurring = isset($_POST['is_recurring']) ? 1 : 0;
+		
+		$result = $wpdb->insert($wpdb->prefix . 'mbs_hidden_slots', array(
+			'doctor_id' => $doctor_id,
+			'slot_time' => $slot_time,
+			'day_of_week' => $day_of_week,
+			'specific_date' => $specific_date,
+			'reason' => $reason,
+			'slot_type' => 'staff_only',
+			'staff_notes' => $staff_notes,
+			'is_recurring' => $is_recurring
+		));
+		
+		if ($result !== false) {
+			echo '<div class="notice notice-success"><p>' . esc_html__('Staff slot added successfully!', 'medical-booking-system') . '</p></div>';
+		} else {
+			echo '<div class="notice notice-error"><p>' . esc_html__('Error adding staff slot.', 'medical-booking-system') . '</p></div>';
+		}
+	}
+	
+	/**
+	 * Delete slot
+	 */
+	private function delete_slot() {
+		global $wpdb;
+		
+		$slot_id = intval($_POST['slot_id']);
+		
+		$result = $wpdb->delete($wpdb->prefix . 'mbs_hidden_slots', array('id' => $slot_id), array('%d'));
+		
+		if ($result !== false) {
+			echo '<div class="notice notice-success"><p>' . esc_html__('Slot deleted successfully!', 'medical-booking-system') . '</p></div>';
+		} else {
+			echo '<div class="notice notice-error"><p>' . esc_html__('Error deleting slot.', 'medical-booking-system') . '</p></div>';
+		}
+	}
+	
+	/**
+	 * AJAX handler for updating doctor field inline
+	 */
+	public function ajax_update_staff_field() {
+		check_ajax_referer('mbs_update_staff', 'nonce');
+		
+		if (!current_user_can('mbs_create_doctors')) {
+			wp_die('Insufficient permissions');
+		}
+		
+		$staff_id = intval($_POST['staff_id']);
+		$field = sanitize_text_field($_POST['field']);
+		$value = sanitize_text_field($_POST['value']);
+		
+		global $wpdb;
+		
+		// Get staff data - check if it's a doctor first
+		$doctor = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}mbs_doctors WHERE id = %d", $staff_id), ARRAY_A);
+		
+		if ($doctor) {
+			// This is a doctor, update doctor record
+			switch ($field) {
+				case 'name':
+					// Split name into first and last name
+					$name_parts = explode(' ', $value, 2);
+					$first_name = $name_parts[0];
+					$last_name = isset($name_parts[1]) ? $name_parts[1] : '';
+					
+					// Update doctor record
+					$wpdb->update(
+						$wpdb->prefix . 'mbs_doctors',
+						array(
+							'first_name' => $first_name,
+							'last_name' => $last_name,
+							'updated_at' => current_time('mysql')
+						),
+						array('id' => $staff_id),
+						array('%s', '%s', '%s'),
+						array('%d')
+					);
+					
+					// Update WordPress user
+					if ($doctor['user_id'] > 0) {
+						wp_update_user(array(
+							'ID' => $doctor['user_id'],
+							'first_name' => $first_name,
+							'last_name' => $last_name,
+							'display_name' => "Dr. {$first_name} {$last_name}"
+						));
+					}
+					break;
+				
+				case 'phone':
+					// Update doctor record
+					$wpdb->update(
+						$wpdb->prefix . 'mbs_doctors',
+						array(
+							'phone' => $value,
+							'updated_at' => current_time('mysql')
+						),
+						array('id' => $staff_id),
+						array('%s', '%s'),
+						array('%d')
+					);
+					
+					// Update phone in user phones table
+					if ($doctor['user_id'] > 0) {
+						$wpdb->update(
+							$wpdb->prefix . 'mbs_user_phones',
+							array('phone' => $value),
+							array('user_id' => $doctor['user_id'], 'is_primary' => 1),
+							array('%s'),
+							array('%d', '%d')
+						);
+					}
+					break;
+					
+				case 'email':
+					// Validate email
+					if (!empty($value) && !is_email($value)) {
+						wp_send_json_error('Invalid email address');
+					}
+					
+					// Check if email already exists
+					if (!empty($value)) {
+						$existing_user = get_user_by('email', $value);
+						if ($existing_user && $existing_user->ID != $doctor['user_id']) {
+							wp_send_json_error('Email already registered to another user');
+						}
+					}
+					
+					// Update doctor record
+					$wpdb->update(
+						$wpdb->prefix . 'mbs_doctors',
+						array(
+							'email' => $value,
+							'updated_at' => current_time('mysql')
+						),
+						array('id' => $staff_id),
+						array('%s', '%s'),
+						array('%d')
+					);
+					
+					// Update WordPress user
+					if ($doctor['user_id'] > 0) {
+						wp_update_user(array(
+							'ID' => $doctor['user_id'],
+							'user_email' => $value
+						));
+					}
+					break;
+			}
+		} else {
+			// This is not a doctor, update only WordPress user
+			$user = get_user_by('id', $staff_id);
+			if (!$user) {
+				wp_send_json_error('Staff member not found');
+			}
+			
+			switch ($field) {
+				case 'name':
+					// Split name into first and last name
+					$name_parts = explode(' ', $value, 2);
+					$first_name = $name_parts[0];
+					$last_name = isset($name_parts[1]) ? $name_parts[1] : '';
+					
+					// Update WordPress user
+					wp_update_user(array(
+						'ID' => $staff_id,
+						'first_name' => $first_name,
+						'last_name' => $last_name,
+						'display_name' => "{$first_name} {$last_name}"
+					));
+					break;
+					
+				case 'phone':
+					// Update phone in user phones table
+					$wpdb->update(
+						$wpdb->prefix . 'mbs_user_phones',
+						array('phone' => $value),
+						array('user_id' => $staff_id, 'is_primary' => 1),
+						array('%s'),
+						array('%d', '%d')
+					);
+					break;
+					
+				case 'email':
+					// Validate email
+					if (!empty($value) && !is_email($value)) {
+						wp_send_json_error('Invalid email address');
+					}
+					
+					// Check if email already exists
+					if (!empty($value)) {
+						$existing_user = get_user_by('email', $value);
+						if ($existing_user && $existing_user->ID != $staff_id) {
+							wp_send_json_error('Email already registered to another user');
+						}
+					}
+					
+					// Update WordPress user
+					wp_update_user(array(
+						'ID' => $staff_id,
+						'user_email' => $value
+					));
+					break;
+			}
+		}
+		
+		wp_send_json_success('Field updated successfully');
+	}
+	
+	/**
+	 * AJAX handler for updating staff via modal
+	 */
+	public function ajax_update_staff_modal() {
+		check_ajax_referer('mbs_update_staff', 'nonce');
+		
+		if (!current_user_can('mbs_create_doctors')) {
+			wp_die('Insufficient permissions');
+		}
+		
+		$staff_id = intval($_POST['staff_id']);
+		$user_id = intval($_POST['user_id']);
+		$first_name = sanitize_text_field($_POST['first_name']);
+		$last_name = sanitize_text_field($_POST['last_name']);
+		$phone = sanitize_text_field($_POST['phone']);
+		$email = sanitize_email($_POST['email']);
+		
+		// Validate required fields
+		if (empty($first_name) || empty($last_name)) {
+			wp_send_json_error('First name and last name are required');
+		}
+		
+		// Validate email
+		if (!empty($email) && !is_email($email)) {
+			wp_send_json_error('Invalid email address');
+		}
+		
+		// Check if email already exists
+		if (!empty($email)) {
+			$existing_user = get_user_by('email', $email);
+			if ($existing_user && $existing_user->ID != $user_id) {
+				wp_send_json_error('Email already registered to another user');
+			}
+		}
+		
+		global $wpdb;
+		
+		// Check if this is a doctor
+		$doctor = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}mbs_doctors WHERE id = %d", $staff_id), ARRAY_A);
+		
+		if ($doctor) {
+			// Update doctor record
+			$wpdb->update(
+				$wpdb->prefix . 'mbs_doctors',
+				array(
+					'first_name' => $first_name,
+					'last_name' => $last_name,
+					'phone' => $phone,
+					'email' => $email,
+					'updated_at' => current_time('mysql')
+				),
+				array('id' => $staff_id),
+				array('%s', '%s', '%s', '%s', '%s'),
+				array('%d')
+			);
+			
+			// Update WordPress user
+			wp_update_user(array(
+				'ID' => $user_id,
+				'first_name' => $first_name,
+				'last_name' => $last_name,
+				'user_email' => $email,
+				'display_name' => "Dr. {$first_name} {$last_name}"
+			));
+			
+			// Update phone in user phones table
+			$wpdb->update(
+				$wpdb->prefix . 'mbs_user_phones',
+				array('phone' => $phone),
+				array('user_id' => $user_id, 'is_primary' => 1),
+				array('%s'),
+				array('%d', '%d')
+			);
+		} else {
+			// Update only WordPress user for non-doctors
+			wp_update_user(array(
+				'ID' => $user_id,
+				'first_name' => $first_name,
+				'last_name' => $last_name,
+				'user_email' => $email,
+				'display_name' => "{$first_name} {$last_name}"
+			));
+			
+			// Update phone in user phones table
+			$wpdb->update(
+				$wpdb->prefix . 'mbs_user_phones',
+				array('phone' => $phone),
+				array('user_id' => $user_id, 'is_primary' => 1),
+				array('%s'),
+				array('%d', '%d')
+			);
+		}
+		
+		wp_send_json_success('Staff member updated successfully');
 	}
 }

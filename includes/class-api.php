@@ -29,6 +29,12 @@ class MBS_API {
 			'permission_callback' => '__return_true',
 		));
 
+		register_rest_route($ns, '/auth/register-staff', array(
+			'methods'  => WP_REST_Server::CREATABLE,
+			'callback' => array($this, 'register_medical_staff'),
+			'permission_callback' => array($this, 'can_register_staff'),
+		));
+
 		register_rest_route($ns, '/auth/login', array(
 			'methods'  => WP_REST_Server::CREATABLE,
 			'callback' => array($this, 'login_user'),
@@ -84,6 +90,12 @@ class MBS_API {
 			'permission_callback' => '__return_true',
 		));
 
+		register_rest_route($ns, '/slots/enhanced', array(
+			'methods'  => WP_REST_Server::READABLE,
+			'callback' => array($this, 'get_enhanced_slots'),
+			'permission_callback' => '__return_true',
+		));
+
 		register_rest_route($ns, '/appointments', array(
 			'methods'  => WP_REST_Server::CREATABLE,
 			'callback' => array($this, 'create_appointment'),
@@ -94,6 +106,13 @@ class MBS_API {
 			'methods'  => WP_REST_Server::READABLE,
 			'callback' => array($this, 'list_appointments'),
 			'permission_callback' => array($this, 'can_list_appointments'),
+		));
+
+		// Family members (basic) - returns current patient as main + optional members
+		register_rest_route($ns, '/family-members', array(
+			'methods'  => WP_REST_Server::READABLE,
+			'callback' => array($this, 'get_family_members_current_user'),
+			'permission_callback' => 'is_user_logged_in',
 		));
 	}
 
@@ -116,6 +135,10 @@ class MBS_API {
 		return is_user_logged_in();
 	}
 
+	public function can_register_staff() {
+		return current_user_can('mbs_create_doctors') || current_user_can('manage_options');
+	}
+
 	public function get_services(WP_REST_Request $request) {
 		global $wpdb;
 		$rows = $wpdb->get_results("SELECT id,name,description,duration,price FROM {$wpdb->prefix}mbs_services WHERE is_active=1 ORDER BY name ASC", ARRAY_A);
@@ -127,11 +150,11 @@ class MBS_API {
 		$service_id = (int) $request->get_param('serviceId');
 		if ($service_id) {
 			$sql = $wpdb->prepare(
-				"SELECT d.id,d.first_name,d.last_name,d.specialty,d.phone,d.email FROM {$wpdb->prefix}mbs_doctors d INNER JOIN {$wpdb->prefix}mbs_doctor_services ds ON d.id=ds.doctor_id WHERE ds.service_id=%d AND d.is_active=1",
+				"SELECT d.id,d.first_name,d.last_name,d.phone,d.email FROM {$wpdb->prefix}mbs_doctors d INNER JOIN {$wpdb->prefix}mbs_doctor_services ds ON d.id=ds.doctor_id WHERE ds.service_id=%d AND d.is_active=1",
 				$service_id
 			);
 		} else {
-			$sql = "SELECT id,first_name,last_name,specialty,phone,email FROM {$wpdb->prefix}mbs_doctors WHERE is_active=1";
+			$sql = "SELECT id,first_name,last_name,phone,email FROM {$wpdb->prefix}mbs_doctors WHERE is_active=1";
 		}
 		$rows = $wpdb->get_results($sql, ARRAY_A);
 		return rest_ensure_response($rows ?: array());
@@ -146,6 +169,27 @@ class MBS_API {
 		}
 		$svc = MBS_Appointment_Service::get_instance();
 		$slots = $svc->get_slots($doctor_id, $date, $duration);
+		return rest_ensure_response($slots);
+	}
+
+	public function get_enhanced_slots(WP_REST_Request $request) {
+		$doctor_id = (int) $request->get_param('doctorId');
+		$date = sanitize_text_field($request->get_param('date'));
+		$service_id = (int) $request->get_param('serviceId');
+		$user_type = sanitize_text_field($request->get_param('userType')) ?: 'patient';
+		
+		if (!$doctor_id || !$date || !$service_id) {
+			return new WP_Error('invalid_params', __('Missing required parameters: doctorId, date, serviceId.', 'medical-booking-system'), array('status' => 400));
+		}
+		
+		// Validate user_type
+		if (!in_array($user_type, array('patient', 'staff'))) {
+			return new WP_Error('invalid_user_type', __('Invalid userType. Must be "patient" or "staff".', 'medical-booking-system'), array('status' => 400));
+		}
+		
+		$svc = MBS_Appointment_Service::get_instance();
+		$slots = $svc->get_enhanced_slots($doctor_id, $date, $service_id, $user_type);
+		
 		return rest_ensure_response($slots);
 	}
 
@@ -173,6 +217,96 @@ class MBS_API {
 			'offset' => (int) $request->get_param('offset') ?: 0,
 		));
 		return rest_ensure_response($rows);
+	}
+
+	/**
+	 * Return current user's patient as main and optional family members if table exists
+	 */
+	public function get_family_members_current_user(WP_REST_Request $request) {
+		$user_id = get_current_user_id();
+		if (!$user_id) {
+			return new WP_Error('not_logged_in', __('Nu sunteți autentificat', 'medical-booking-system'), array('status' => 401));
+		}
+
+		global $wpdb;
+		$auth = MBS_Auth::get_instance();
+		$user = get_user_by('id', $user_id);
+		$phones = $auth->get_user_phones($user_id);
+
+		$main_patient = $wpdb->get_row($wpdb->prepare(
+			"SELECT id, first_name, last_name, cnp, email, phone FROM {$wpdb->prefix}mbs_patients WHERE user_id=%d LIMIT 1",
+			$user_id
+		), ARRAY_A);
+
+		// Extract primary phone (objects from get_results)
+		$primary_phone = '';
+		if (is_array($phones) && !empty($phones)) {
+			$first = $phones[0];
+			$primary_phone = is_object($first) ? ($first->phone ?? '') : ($first['phone'] ?? '');
+		}
+
+		$computed_name = trim(($user->first_name ?: ($main_patient['first_name'] ?? '')) . ' ' . ($user->last_name ?: ($main_patient['last_name'] ?? '')));
+		if ($computed_name === '') { $computed_name = $user->display_name ?: 'Pacient'; }
+
+		$main = array(
+			'id' => $user_id,
+			'name' => $computed_name,
+			'cnp' => get_user_meta($user_id, 'mbs_cnp', true) ?: ($main_patient['cnp'] ?? ''),
+			'cnp_masked' => $auth->mask_cnp(get_user_meta($user_id, 'mbs_cnp', true) ?: ($main_patient['cnp'] ?? '')),
+			'email' => $user->user_email ?: ($main_patient['email'] ?? ''),
+			'phone' => ($primary_phone !== '' ? $primary_phone : ($main_patient['phone'] ?? '')),
+			'isDefault' => true,
+		);
+
+		$members = array();
+		// Try to read family members if table exists (handle both schemas)
+		$family_table = $wpdb->prefix . 'mbs_family_members';
+		$table_exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $family_table));
+		if ($table_exists === $family_table) {
+			// Suppress notices if SHOW COLUMNS fails unexpectedly
+			$wpdb->hide_errors();
+			$cols = $wpdb->get_col("SHOW COLUMNS FROM {$family_table}", 0);
+			$wpdb->show_errors();
+			$cols = is_array($cols) ? $cols : array();
+			if (in_array('main_patient_id', $cols, true)) {
+				$main_id = $main_patient ? (int)$main_patient['id'] : 0;
+				if ($main_id) {
+					$members = $wpdb->get_results($wpdb->prepare(
+						"SELECT id, nume as last_name, prenume as first_name, cnp, relatia as relationship, telefon as phone, email FROM {$family_table} WHERE main_patient_id=%d AND (status IS NULL OR status<>'deleted')",
+						$main_id
+					), ARRAY_A) ?: array();
+				}
+			} elseif (in_array('family_id', $cols, true) && in_array('patient_id', $cols, true)) {
+				// Join variant with patients table
+				$main_id = $main_patient ? (int)$main_patient['id'] : 0;
+				if ($main_id) {
+					$members = $wpdb->get_results($wpdb->prepare(
+						"SELECT fm.id, p.first_name, p.last_name, p.cnp, fm.relationship_type as relationship, p.phone, p.email
+						 FROM {$family_table} fm JOIN {$wpdb->prefix}mbs_patients p ON p.id=fm.patient_id WHERE fm.family_id=%d",
+						$main_id
+					), ARRAY_A) ?: array();
+				}
+			}
+		}
+
+		// Normalize members
+		$members = array_map(function($m) use ($auth) {
+			return array(
+				'id' => (int) ($m['id'] ?? 0),
+				'name' => trim(($m['first_name'] ?? '') . ' ' . ($m['last_name'] ?? '')),
+				'cnp' => $m['cnp'] ?? '',
+				'cnp_masked' => $auth->mask_cnp($m['cnp'] ?? ''),
+				'phone' => $m['phone'] ?? '',
+				'email' => $m['email'] ?? '',
+				'relationship' => $m['relationship'] ?? ($m['relatia'] ?? ''),
+				'isDefault' => false,
+			);
+		}, $members);
+
+		return rest_ensure_response(array(
+			'main' => $main,
+			'members' => $members,
+		));
 	}
 
 	// Authentication methods
@@ -204,6 +338,41 @@ class MBS_API {
 			'success' => true,
 			'user_id' => $user_id,
 			'message' => __('Înregistrare reușită', 'medical-booking-system'),
+			'user' => array(
+				'id' => $user->ID,
+				'cnp' => get_user_meta($user->ID, 'mbs_cnp', true),
+				'email' => $user->user_email,
+				'first_name' => $user->first_name,
+				'last_name' => $user->last_name,
+				'display_name' => $user->display_name,
+				'roles' => $user->roles,
+			),
+		));
+	}
+
+	public function register_medical_staff(WP_REST_Request $request) {
+		$rl = $this->check_rate_limit($request);
+		if (is_wp_error($rl)) { return $rl; }
+
+		$data = $request->get_json_params();
+		
+		if (!is_array($data)) {
+			return new WP_Error('invalid_data', __('Date invalide', 'medical-booking-system'), array('status' => 400));
+		}
+
+		$auth = MBS_Auth::get_instance();
+		$user_id = $auth->register_medical_staff($data);
+
+		if (is_wp_error($user_id)) {
+			return $user_id;
+		}
+
+		$user = get_user_by('id', $user_id);
+		
+		return rest_ensure_response(array(
+			'success' => true,
+			'user_id' => $user_id,
+			'message' => __('Personal medical înregistrat cu succes', 'medical-booking-system'),
 			'user' => array(
 				'id' => $user->ID,
 				'cnp' => get_user_meta($user->ID, 'mbs_cnp', true),

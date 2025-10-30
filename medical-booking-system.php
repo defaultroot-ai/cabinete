@@ -3,7 +3,7 @@
  * Plugin Name: Medical Booking System
  * Plugin URI: https://example.com/medical-booking-system
  * Description: Complete medical appointment booking system with CNP authentication, multilingual support, calendar management, and patient management.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Your Name
  * Author URI: https://example.com
  * License: GPL v2 or later
@@ -26,7 +26,7 @@ define('MBS_PLUGIN_FILE', __FILE__);
 define('MBS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MBS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MBS_PLUGIN_BASENAME', plugin_basename(__FILE__));
-define('MBS_VERSION', '1.2.0');
+define('MBS_VERSION', '1.2.1');
 
 /**
  * Main Medical Booking System Class
@@ -152,12 +152,30 @@ class MedicalBookingSystem {
             true
         );
         
-        // Localize script for translations
+        // Prepare current user info for instant render (avoid initial flicker)
+        $current_user_payload = null;
+        if (is_user_logged_in()) {
+            $uid = get_current_user_id();
+            $u = get_user_by('id', $uid);
+            $cnp = get_user_meta($uid, 'mbs_cnp', true);
+            $mask = '';
+            if (!empty($cnp)) {
+                $mask = str_repeat('*', max(0, strlen($cnp) - 4)) . substr($cnp, -4);
+            }
+            $current_user_payload = array(
+                'id' => $uid,
+                'display_name' => $u ? $u->display_name : '',
+                'cnp_masked' => $mask,
+            );
+        }
+
+        // Localize script for translations + initial user
         wp_localize_script('mbs-public-script', 'mbs_ajax', array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('mbs_nonce'),
             'rest_base' => rest_url('mbs/v1'),
             'rest_nonce' => wp_create_nonce('wp_rest'),
+            'current_user' => $current_user_payload,
             'strings' => array(
                 'loading' => __('Loading...', 'medical-booking-system'),
                 'error' => __('An error occurred. Please try again.', 'medical-booking-system'),

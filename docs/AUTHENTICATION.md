@@ -54,7 +54,7 @@ Adaugă următorul shortcode în orice pagină WordPress:
 - **Prenume**
 - **Nume**
 - **Email** - Adresă email validă
-- **Parolă** - Minim 8 caractere
+- **Parolă** - Auto-generată din ultimele 6 cifre ale CNP-ului
 - **Confirmare Parolă**
 
 **Câmpuri opționale:**
@@ -68,9 +68,28 @@ Adaugă următorul shortcode în orice pagină WordPress:
 
 **După înregistrare:**
 - Utilizatorul este automat autentificat
-- I se atribuie rolul `mbs_patient`
+- I se atribuie rolul `mbs_patient` (implicit) sau rolul specificat
 - CNP devine `username` în WordPress
 - Redirect automat la pagină
+
+### Înregistrare Personal Medical
+
+**Endpoint:** `POST /wp-json/mbs/v1/auth/register-staff`
+
+**Câmpuri obligatorii:**
+- **CNP** - Cod Numeric Personal (13 cifre, validat cu algoritm)
+- **Prenume**
+- **Nume**
+- **Email** - Adresă email validă
+- **Parolă** - Auto-generată din ultimele 6 cifre ale CNP-ului
+- **Confirmare Parolă**
+- **Rol** - `mbs_doctor`, `mbs_assistant`, `mbs_receptionist`, `mbs_manager`
+
+**Câmpuri opționale:**
+- **Telefon** - Format românesc (07XXXXXXXX)
+- **Specialitate** - Pentru medici sau departament pentru alt personal
+
+**Permisiuni:** Doar utilizatorii cu rol `mbs_create_doctors` sau `manage_options` pot înregistra personal medical.
 
 ### Autentificare (Login)
 
@@ -140,6 +159,43 @@ Utilizatorul autentificat vede:
   "code": "cnp_exists",
   "message": "CNP deja înregistrat",
   "data": { "status": 400 }
+}
+```
+
+### POST `/wp-json/mbs/v1/auth/register-staff`
+
+Înregistrare personal medical (medici, asistenți, recepționeri, manageri).
+
+**Request:**
+```json
+{
+  "cnp": "1234567890123",
+  "email": "dr.popescu@example.com",
+  "password": "parola123",
+  "first_name": "Ion",
+  "last_name": "Popescu",
+  "phone": "0712345678",
+  "role": "mbs_doctor",
+  "specialty": "Cardiologie"
+}
+```
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "user_id": 42,
+  "message": "Personal medical înregistrat cu succes",
+  "user": {
+    "id": 42,
+    "cnp": "1234567890123",
+    "email": "dr.popescu@example.com",
+    "first_name": "Ion",
+    "last_name": "Popescu",
+    "display_name": "Ion Popescu",
+    "roles": ["mbs_doctor"],
+    "specialty": "Cardiologie"
+  }
 }
 ```
 

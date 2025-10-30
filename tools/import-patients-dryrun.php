@@ -212,10 +212,12 @@ class MBS_Patient_Import_DryRun {
         
         // 8. Show what would be created
         if (empty($errors)) {
+            $password = $this->generate_password($cnp);
             $this->log("");
             $this->log("WOULD CREATE:", 'success');
             $this->log("  • WordPress User:", 'success');
             $this->log("    - Username: $cnp", 'success');
+            $this->log("    - Password: $password", 'success');
             $this->log("    - Email: $email", 'success');
             $this->log("    - Display Name: $nume $prenume", 'success');
             $this->log("    - First Name: $prenume", 'success');
@@ -291,6 +293,13 @@ class MBS_Patient_Import_DryRun {
         // Generate hash from CNP (first 8 chars of MD5)
         $hash = substr(md5($cnp), 0, 8);
         return "patient{$hash}@temp.clinic.ro";
+    }
+    
+    /**
+     * Generate password from CNP (last 6 digits)
+     */
+    private function generate_password($cnp) {
+        return substr($cnp, -6);
     }
     
     /**

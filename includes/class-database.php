@@ -21,7 +21,7 @@ class MBS_Database {
     /**
      * Database version
      */
-    private $db_version = '1.5.0';
+    private $db_version = '1.7.0';
     
     /**
      * Get single instance
@@ -81,7 +81,6 @@ class MBS_Database {
             user_id int(11) NOT NULL,
             first_name varchar(100) NOT NULL,
             last_name varchar(100) NOT NULL,
-            specialty varchar(255),
             phone varchar(20),
             email varchar(255),
             bio text,
@@ -291,6 +290,45 @@ class MBS_Database {
             KEY relationship_type (relationship_type)
         ) $charset_collate;";
         
+        // Table: Doctor Slot Settings (NEW - for enhanced slot configuration)
+        $table_doctor_slot_settings = $wpdb->prefix . 'mbs_doctor_slot_settings';
+        $sql_doctor_slot_settings = "CREATE TABLE $table_doctor_slot_settings (
+            id int(11) NOT NULL AUTO_INCREMENT,
+            doctor_id int(11) NOT NULL,
+            service_id int(11) NOT NULL,
+            slot_interval int(11) DEFAULT 30 COMMENT 'Intervalul între sloturi în minute',
+            buffer_time int(11) DEFAULT 0 COMMENT 'Timp buffer între programări în minute',
+            max_advance_days int(11) DEFAULT 30 COMMENT 'Câte zile în avans se pot face programări',
+            min_advance_hours int(11) DEFAULT 2 COMMENT 'Minim câte ore în avans',
+            is_active tinyint(1) DEFAULT 1,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY doctor_service (doctor_id, service_id),
+            KEY doctor_id (doctor_id),
+            KEY service_id (service_id)
+        ) $charset_collate;";
+        
+        // Table: Hidden Slots and Staff Only Slots (NEW - for slot management)
+        $table_hidden_slots = $wpdb->prefix . 'mbs_hidden_slots';
+        $sql_hidden_slots = "CREATE TABLE $table_hidden_slots (
+            id int(11) NOT NULL AUTO_INCREMENT,
+            doctor_id int(11) NOT NULL,
+            slot_time time NOT NULL COMMENT 'Ora slotului (ex: 12:00)',
+            day_of_week tinyint(1) NULL COMMENT 'Ziua săptămânii (0=Duminică, 1=Luni, etc.)',
+            specific_date date NULL COMMENT 'Data specifică pentru ascundere',
+            reason varchar(255) DEFAULT 'Slot ascuns' COMMENT 'Motivul ascunderii',
+            is_recurring tinyint(1) DEFAULT 0 COMMENT 'Dacă se repetă săptămânal',
+            slot_type enum('hidden', 'staff_only') DEFAULT 'hidden' COMMENT 'Tipul slotului',
+            staff_notes text NULL COMMENT 'Note pentru staff (doar pentru staff_only)',
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY doctor_id (doctor_id),
+            KEY day_of_week (day_of_week),
+            KEY specific_date (specific_date),
+            KEY slot_type (slot_type)
+        ) $charset_collate;";
+        
         // Execute table creation
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         
@@ -307,6 +345,14 @@ class MBS_Database {
         dbDelta($sql_user_phones);
         dbDelta($sql_families);
         dbDelta($sql_family_members);
+        
+        // Execute new slot management tables
+        $result_slot_settings = dbDelta($sql_doctor_slot_settings);
+        $result_hidden_slots = dbDelta($sql_hidden_slots);
+        
+        // Debug logging for new tables
+        error_log('Medical Booking System: Slot Settings table creation result: ' . print_r($result_slot_settings, true));
+        error_log('Medical Booking System: Hidden Slots table creation result: ' . print_r($result_hidden_slots, true));
         
         // Add gender column to existing patients table if it doesn't exist
         $this->add_gender_column_to_patients();
@@ -457,30 +503,33 @@ class MBS_Database {
     private function insert_default_data() {
         global $wpdb;
         
-        // Insert default services
+        // Insert default services - DISABLED
+        // Serviciile trebuie adăugate manual prin admin panel
+        // pentru a evita instalarea automată de servicii nedorite
+        /*
         $table_services = $wpdb->prefix . 'mbs_services';
         $default_services = array(
             array(
-                'name' => __('General Consultation', 'medical-booking-system'),
-                'description' => __('Standard medical consultation', 'medical-booking-system'),
+                'name' => 'Consultație Generală',
+                'description' => 'Consultație medicală standard',
                 'duration' => 30,
                 'price' => 0.00
             ),
             array(
-                'name' => __('Cardiology Consultation', 'medical-booking-system'),
-                'description' => __('Complete cardiology evaluation', 'medical-booking-system'),
+                'name' => 'Consultație Cardiologie',
+                'description' => 'Evaluare completă cardiologică',
                 'duration' => 45,
                 'price' => 0.00
             ),
             array(
-                'name' => __('Medical Tests', 'medical-booking-system'),
-                'description' => __('Sample collection for medical tests', 'medical-booking-system'),
+                'name' => 'Analize Medicale',
+                'description' => 'Recoltare probe pentru analize',
                 'duration' => 15,
                 'price' => 0.00
             ),
             array(
-                'name' => __('Periodic Check-up', 'medical-booking-system'),
-                'description' => __('General health status verification', 'medical-booking-system'),
+                'name' => 'Control Periodic',
+                'description' => 'Verificare stare generală de sănătate',
                 'duration' => 20,
                 'price' => 0.00
             )
@@ -489,6 +538,7 @@ class MBS_Database {
         foreach ($default_services as $service) {
             $wpdb->insert($table_services, $service);
         }
+        */
         
         // Insert default settings
         $table_settings = $wpdb->prefix . 'mbs_settings';
@@ -508,6 +558,56 @@ class MBS_Database {
             // Use REPLACE to avoid duplicate key warnings on re-activations
             $wpdb->replace($table_settings, $setting);
         }
+        
+        // Insert default slot settings for existing doctors and services
+        $this->insert_default_slot_settings();
+    }
+    
+    /**
+     * Insert default slot settings for existing doctors and services
+     */
+    private function insert_default_slot_settings() {
+        global $wpdb;
+        
+        $table_slot_settings = $wpdb->prefix . 'mbs_doctor_slot_settings';
+        $table_doctors = $wpdb->prefix . 'mbs_doctors';
+        $table_services = $wpdb->prefix . 'mbs_services';
+        
+        // Check if table exists before inserting
+        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table_slot_settings'");
+        if (!$table_exists) {
+            error_log('Medical Booking System: Slot settings table does not exist, skipping default data insertion');
+            return;
+        }
+        
+        // Get all doctors and services
+        $doctors = $wpdb->get_results("SELECT id FROM $table_doctors WHERE is_active = 1", ARRAY_A);
+        $services = $wpdb->get_results("SELECT id FROM $table_services WHERE is_active = 1", ARRAY_A);
+        
+        $inserted_count = 0;
+        
+        // Create default slot settings for each doctor-service combination
+        foreach ($doctors as $doctor) {
+            foreach ($services as $service) {
+                $default_settings = array(
+                    'doctor_id' => $doctor['id'],
+                    'service_id' => $service['id'],
+                    'slot_interval' => 30, // Default 30 minutes
+                    'buffer_time' => 0,    // No buffer by default
+                    'max_advance_days' => 30, // 30 days in advance
+                    'min_advance_hours' => 2,  // 2 hours minimum
+                    'is_active' => 1
+                );
+                
+                // Use REPLACE to avoid duplicate key warnings
+                $result = $wpdb->replace($table_slot_settings, $default_settings);
+                if ($result !== false) {
+                    $inserted_count++;
+                }
+            }
+        }
+        
+        error_log("Medical Booking System: Inserted $inserted_count default slot settings");
     }
     
     /**
@@ -517,6 +617,11 @@ class MBS_Database {
         global $wpdb;
         
         $tables = array(
+            $wpdb->prefix . 'mbs_hidden_slots',           // NEW - Hidden slots table
+            $wpdb->prefix . 'mbs_doctor_slot_settings',  // NEW - Slot settings table
+            $wpdb->prefix . 'mbs_family_members',        // Family members
+            $wpdb->prefix . 'mbs_families',              // Families
+            $wpdb->prefix . 'mbs_user_phones',           // User phones
             $wpdb->prefix . 'mbs_notifications',
             $wpdb->prefix . 'mbs_appointment_history',
             $wpdb->prefix . 'mbs_appointments',

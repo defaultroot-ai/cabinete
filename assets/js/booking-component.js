@@ -1,4 +1,4 @@
-        const { useState, useMemo, useCallback } = React;
+        const { useState, useMemo, useCallback, useEffect } = React;
         const { createRoot } = ReactDOM;
 
         // Simple icon components to replace Lucide icons
@@ -74,22 +74,57 @@
             notes: ''
           });
 
-          // Date mock pentru demo
-          const services = [
-            { id: 1, name: 'Consultație Generală', duration: 30, description: 'Consultație medicală standard' },
-            { id: 2, name: 'Consultație Cardiologie', duration: 45, description: 'Evaluare completă cardiologică' },
-            { id: 3, name: 'Analize Medicale', duration: 15, description: 'Recoltare probe pentru analize' },
-            { id: 4, name: 'Control Periodic', duration: 20, description: 'Verificare stare generală de sănătate' }
-          ];
+          const [services, setServices] = useState([]);
+          const [doctors, setDoctors] = useState([]);
+          const [loadingData, setLoadingData] = useState(true);
+          const [loadingServices, setLoadingServices] = useState(false);
+          const [loadingDoctors, setLoadingDoctors] = useState(false);
+          const [apiError, setApiError] = useState(null);
 
-          const doctors = [
-            { id: 1, name: 'Dr. Maria Popescu', specialty: 'Medicină Generală', serviceId: 1, image: '👩‍⚕️' },
-            { id: 2, name: 'Dr. Ion Ionescu', specialty: 'Cardiolog', serviceId: 2, image: '👨‍⚕️' },
-            { id: 3, name: 'Dr. Ana Gheorghe', specialty: 'Medicină Generală', serviceId: 1, image: '👩‍⚕️' },
-            { id: 4, name: 'Dr. Mihai Dumitrescu', specialty: 'Cardiolog', serviceId: 2, image: '👨‍⚕️' }
-          ];
+          // Încărcare servicii și doctori din API
+          React.useEffect(() => {
+            const loadData = async () => {
+              try {
+                setLoadingData(true);
+                setApiError(null);
+                
+                // Încărcare servicii
+                setLoadingServices(true);
+                const servicesResponse = await fetch(`${window.location.origin}/react/wp-json/mbs/v1/services`);
+                if (!servicesResponse.ok) {
+                  throw new Error(`Eroare la încărcarea serviciilor: ${servicesResponse.status}`);
+                }
+                const servicesData = await servicesResponse.json();
+                setServices(servicesData);
+                setLoadingServices(false);
+                
+                // Încărcare doctori
+                setLoadingDoctors(true);
+                const doctorsResponse = await fetch(`${window.location.origin}/react/wp-json/mbs/v1/doctors`);
+                if (!doctorsResponse.ok) {
+                  throw new Error(`Eroare la încărcarea doctorilor: ${doctorsResponse.status}`);
+                }
+                const doctorsData = await doctorsResponse.json();
+                setDoctors(doctorsData);
+                setLoadingDoctors(false);
+                
+              } catch (error) {
+                console.error('Error loading data:', error);
+                setApiError('Nu s-au putut încărca datele. Vă rugăm să reîncercați.');
+                // Nu mai setăm date mockup, lăsăm arrays goale
+                setServices([]);
+                setDoctors([]);
+                setLoadingServices(false);
+                setLoadingDoctors(false);
+              } finally {
+                setLoadingData(false);
+              }
+            };
+            
+            loadData();
+          }, []);
 
-          const [currentMonth, setCurrentMonth] = useState(new Date(2025, 9, 17));
+          const [currentMonth, setCurrentMonth] = useState(new Date());
 
           // Generare calendar pentru luna curentă (weekend-ul disabled) - memoized pentru performanță
           const generateCalendar = useCallback(() => {
@@ -97,7 +132,7 @@
             const month = currentMonth.getMonth();
             const firstDay = new Date(year, month, 1);
             const lastDay = new Date(year, month + 1, 0);
-            const today = new Date(2025, 9, 17);
+            const today = new Date(2025, 0, 1); // Set to January 1, 2025 for testing
             
             const calendar = [];
             
@@ -130,8 +165,61 @@
 
           const calendarDates = useMemo(() => generateCalendar(), [generateCalendar]);
 
-          // Generare sloturi în funcție de durata serviciului - memoized pentru performanță
-          const generateTimeSlots = useCallback(() => {
+          // Generare sloturi folosind API-ul îmbunătățit - memoized pentru performanță
+          const generateTimeSlots = useCallback(async () => {
+            if (!bookingData.service || !bookingData.doctor || !bookingData.date) { return []; }
+            
+            try {
+              setLoading(true);
+              setError(null);
+              
+              // Determinăm tipul utilizatorului (pentru moment, toți sunt pacienți)
+              const userType = 'patient';
+              
+              // Construim URL-ul pentru noul API îmbunătățit
+              const apiUrl = `${window.location.origin}/react/wp-json/mbs/v1/slots/enhanced`;
+              const params = new URLSearchParams({
+                doctorId: bookingData.doctor.id,
+                date: bookingData.date,
+                serviceId: bookingData.service.id,
+                userType: userType
+              });
+              
+              const response = await fetch(`${apiUrl}?${params}`);
+              
+              if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+              }
+              
+              const slots = await response.json();
+              
+              // Transformăm răspunsul pentru compatibilitate cu componenta existentă
+              const transformedSlots = slots.map(slot => ({
+                time: slot.time,
+                status: slot.status === 'staff_only' ? 'blocked' : slot.status,
+                blockReason: slot.block_reason || null,
+                staffNotes: slot.staff_notes || null,
+                startTime: slot.start_time,
+                endTime: slot.end_time,
+                duration: slot.duration,
+                interval: slot.interval,
+                bufferTime: slot.buffer_time
+              }));
+              
+              return transformedSlots;
+              
+            } catch (err) {
+              setError(`Eroare la încărcarea sloturilor: ${err.message}`);
+              
+              // Fallback la sloturile simulate în caz de eroare
+              return generateFallbackSlots();
+            } finally {
+              setLoading(false);
+            }
+          }, [bookingData.service, bookingData.doctor, bookingData.date]);
+          
+          // Funcție fallback pentru sloturi simulate (în caz de eroare API)
+          const generateFallbackSlots = useCallback(() => {
             if (!bookingData.service) return [];
             
             const duration = bookingData.service.duration;
@@ -176,7 +264,22 @@
             return slots;
           }, [bookingData.service]);
 
-          const timeSlots = useMemo(() => generateTimeSlots(), [generateTimeSlots]);
+          const [timeSlots, setTimeSlots] = useState([]);
+          
+          // Efect pentru încărcarea sloturilor când se schimbă datele de booking
+          React.useEffect(() => {
+            const loadSlots = async () => {
+              if (!bookingData.service || !bookingData.doctor || !bookingData.date) {
+                setTimeSlots([]);
+                return;
+              }
+              
+              const slots = await generateTimeSlots();
+              setTimeSlots(slots);
+            };
+            
+            loadSlots();
+          }, [bookingData.service, bookingData.doctor, bookingData.date, generateTimeSlots]);
 
           // Filtrare sloturi după perioada zilei - memoized pentru performanță
           const filteredTimeSlots = useMemo(() => timeSlots.filter(slot => {
@@ -200,11 +303,113 @@
 
           const { available: availableSlots, booked: bookedSlots, blocked: blockedSlots } = slotStats;
 
-          const familyMembers = [
-            { id: 0, name: 'Eu', phone: '0722123456', cnp: '1850101123456', isDefault: true },
-            { id: 1, name: 'Soția mea - Elena Popescu', phone: '0722123457', cnp: '2860202234567', isDefault: false },
-            { id: 2, name: 'Fiul meu - Andrei Popescu', phone: '0722123458', cnp: '5100303345678', isDefault: false }
-          ];
+          // Family members: load from API (current user as default member)
+          const [familyMembers, setFamilyMembers] = useState([]);
+          const [currentUserInfo, setCurrentUserInfo] = useState(null);
+          const [selectedPatientLabel, setSelectedPatientLabel] = useState('');
+          // Seed UI with user from localized data (instant, avoids flicker)
+          useEffect(() => {
+            try {
+              if (window.mbs_ajax && window.mbs_ajax.current_user && window.mbs_ajax.current_user.display_name) {
+                const name = window.mbs_ajax.current_user.display_name;
+                const cnpMasked = window.mbs_ajax.current_user.cnp_masked || '';
+                setSelectedPatientLabel(name);
+                setCurrentUserInfo({ display_name: name, cnp_masked: cnpMasked });
+                setTimeout(() => {
+                  const el = document.getElementById('mbs-patient-name');
+                  const elSummary = document.getElementById('mbs-patient-name-summary');
+                  if (el) el.textContent = name;
+                  if (elSummary) elSummary.textContent = name;
+                }, 0);
+              }
+            } catch (_) {}
+          }, []);
+          const [loadingFamily, setLoadingFamily] = useState(false);
+          const [familyError, setFamilyError] = useState(null);
+
+          useEffect(() => {
+            let isMounted = true;
+            const loadCurrentUser = async () => {
+              try {
+                setLoadingFamily(true);
+                setFamilyError(null);
+                const resp = await fetch(`${mbs_ajax.rest_base}/auth/me`, {
+                  method: 'GET',
+                  headers: { 'X-WP-Nonce': mbs_ajax.rest_nonce },
+                  credentials: 'include'
+                });
+                if (!resp.ok) {
+                  throw new Error(`HTTP ${resp.status}`);
+                }
+                const me = await resp.json();
+                if (!isMounted) return;
+                const fullNameRaw = [me.first_name, me.last_name].filter(Boolean).join(' ').trim();
+                const fullName = (me.display_name && me.display_name.trim()) || fullNameRaw || (me.cnp_masked || 'Pacient');
+                const primaryPhone = Array.isArray(me.phones) && me.phones.length > 0 ? (me.phones.find(p => p.is_primary)?.phone || me.phones[0].phone) : '';
+                // Start with main patient as default
+                let membersList = [{ id: me.id, name: fullName, phone: primaryPhone || '', cnp: me.cnp || '', cnp_masked: me.cnp_masked || '', isDefault: true }];
+                setCurrentUserInfo(me);
+                setSelectedPatientLabel(fullName);
+                // Hard-override DOM label as fallback (if React state async causes delay)
+                setTimeout(() => {
+                  try {
+                    const el = document.getElementById('mbs-patient-name');
+                    const elSummary = document.getElementById('mbs-patient-name-summary');
+                    if (el) {
+                      el.textContent = (me.display_name && me.display_name.trim()) || fullName;
+                    }
+                    if (elSummary) {
+                      elSummary.textContent = (me.display_name && me.display_name.trim()) || fullName;
+                    }
+                  } catch (e) { /* noop */ }
+                }, 0);
+
+                // Try to fetch family members if endpoint exists
+                try {
+                  const famResp = await fetch(`${mbs_ajax.rest_base}/family-members`, {
+                    method: 'GET',
+                    headers: { 'X-WP-Nonce': mbs_ajax.rest_nonce },
+                    credentials: 'include'
+                  });
+                  if (famResp.ok) {
+                    const fam = await famResp.json();
+                    const main = fam.main || {};
+                    const others = Array.isArray(fam.members) ? fam.members : [];
+                    const mainName = (main?.name && main?.name.trim()) || fullName;
+                    const mainPhone = main?.phone || primaryPhone || '';
+                    // păstrăm mereu numele din auth/me ca prioritar
+                    membersList = [
+                      { id: me.id, name: mainName || fullName, phone: mainPhone || '', cnp: main?.cnp || me.cnp || '', cnp_masked: main?.cnp_masked || me.cnp_masked || '', isDefault: true },
+                      ...others.map(o => ({ id: o.id, name: o.name || '', phone: o.phone || '', cnp: o.cnp || '', isDefault: false }))
+                    ];
+                    setSelectedPatientLabel(mainName || fullName);
+                  }
+                } catch (e) {
+                  // Ignore, keep only main patient
+                }
+
+                setFamilyMembers(membersList);
+                // Selectează automat pacientul principal dacă nu e selectat
+                if (!bookingData.familyMember && membersList.length > 0) {
+                  const mainMember = membersList.find(m => m.isDefault) || membersList[0];
+                  setBookingData(prev => ({ ...prev, familyMember: mainMember }));
+                }
+              } catch (e) {
+                if (!isMounted) return;
+                setFamilyError('Nu s-au putut încărca datele pacientului.');
+                // Fallback: încearcă totuși să afișezi userul din sesiune (nume din document.title ca placeholder)
+                const fallback = [{ id: 0, name: 'Pacient', phone: '', cnp: '', isDefault: true }];
+                setFamilyMembers(fallback);
+                if (!bookingData.familyMember) {
+                  setBookingData(prev => ({ ...prev, familyMember: fallback[0] }));
+                }
+              } finally {
+                if (isMounted) setLoadingFamily(false);
+              }
+            };
+            loadCurrentUser();
+            return () => { isMounted = false; };
+          }, []);
 
           const steps = [
             { num: 1, name: 'Serviciu', icon: FileText },
@@ -216,20 +421,63 @@
             { num: 7, name: 'Confirmare', icon: CheckCircle }
           ];
 
-          const handleNext = useCallback(() => {
+          const createAppointment = useCallback(async () => {
+            const { doctor, service, date, timeSlot, notes } = bookingData;
+            if (!doctor || !service || !date || !timeSlot) {
+              throw new Error('Date programare incomplete');
+            }
+            const doctorId = doctor.id ?? doctor.doctor_id ?? doctor;
+            const serviceId = service.id ?? service.service_id ?? service;
+            const start = (typeof timeSlot === 'string')
+              ? timeSlot.split('-')[0]
+              : (timeSlot.start_time ?? (typeof timeSlot.time === 'string' ? timeSlot.time.split('-')[0] : (timeSlot.startTime ?? null)));
+            const end = (typeof timeSlot === 'string')
+              ? timeSlot.split('-')[1]
+              : (timeSlot.end_time ?? (typeof timeSlot.time === 'string' ? timeSlot.time.split('-')[1] : (timeSlot.endTime ?? null)));
+            const payload = {
+              doctor_id: Number(doctorId),
+              service_id: Number(serviceId),
+              appointment_date: date,
+              start_time: start,
+              end_time: end,
+              notes: notes || ''
+            };
+            const resp = await fetch(`${mbs_ajax.rest_base}/appointments`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-WP-Nonce': mbs_ajax.rest_nonce
+              },
+              credentials: 'include',
+              body: JSON.stringify(payload)
+            });
+            if (!resp.ok) {
+              let msg = 'Eroare la crearea programării';
+              try { const err = await resp.json(); msg = err.message || msg; } catch (_) {}
+              throw new Error(msg);
+            }
+            return await resp.json();
+          }, [bookingData]);
+
+          const handleNext = useCallback(async () => {
             if (step < 7) {
               if (step === 6) {
-                // Simulare procesare programare
-                setLoading(true);
-                setTimeout(() => {
-                  setLoading(false);
+                try {
+                  setLoading(true);
+                  setError(null);
+                  await createAppointment();
                   setStep(7);
-                }, 2000);
+                } catch (e) {
+                  console.error(e);
+                  setError(e.message || 'Eroare la confirmare');
+                } finally {
+                  setLoading(false);
+                }
               } else {
                 setStep(step + 1);
               }
             }
-          }, [step]);
+          }, [step, createAppointment]);
 
           const handleBack = useCallback(() => {
             if (step > 1) setStep(step - 1);
@@ -303,24 +551,55 @@
           }, []);
 
           // Filtrare medici după serviciu - memoized pentru performanță
-          const filteredDoctors = useMemo(() => 
-            bookingData.service 
-              ? doctors.filter(d => d.serviceId === bookingData.service.id)
-              : doctors,
-            [bookingData.service]
-          );
+          const filteredDoctors = useMemo(() => {
+            if (!bookingData.service) return doctors;
+            
+            // Afișăm toți doctorii activi (fără filtrare după specialitate)
+            return doctors.filter(doctor => doctor.is_active !== false);
+          }, [bookingData.service, doctors]);
 
-          return React.createElement('div', { className: "min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-4" },
-            React.createElement('div', { className: "max-w-4xl mx-auto" },
+          // La intrarea în Pasul 5: selectează automat pacientul principal dacă nu e deja selectat
+          useEffect(() => {
+            if (step === 5 && (!bookingData.familyMember) && Array.isArray(familyMembers) && familyMembers.length > 0) {
+              const mainMember = familyMembers.find(m => m.isDefault) || familyMembers[0];
+              setBookingData(prev => ({ ...prev, familyMember: mainMember }));
+            }
+          }, [step, familyMembers]);
+
+          // Helper: eticheta pacientului (prioritar display_name din auth/me)
+          const getPatientLabel = useCallback(() => {
+            const label = (currentUserInfo && currentUserInfo.display_name) 
+              || selectedPatientLabel 
+              || (bookingData.familyMember && bookingData.familyMember.name) 
+              || (bookingData.familyMember && bookingData.familyMember.cnp_masked) 
+              || 'Pacient';
+            console.log('[MBS] patient label =>', label);
+            return label;
+          }, [currentUserInfo, selectedPatientLabel, bookingData.familyMember]);
+
+          // Permisiune de continuare în funcție de pasul curent
+          const canProceed = useMemo(() => {
+            switch (step) {
+              case 1: return !!bookingData.service;
+              case 2: return !!bookingData.doctor;
+              case 3: return !!bookingData.date;
+              case 4: return !!bookingData.timeSlot;
+              case 5: return !!bookingData.familyMember;
+              default: return false;
+            }
+          }, [step, bookingData]);
+
+          return React.createElement('div', { className: "min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-3 md:p-6 pb-24 md:pb-6" },
+            React.createElement('div', { className: "max-w-full md:max-w-4xl mx-auto" },
               // Header
-              React.createElement('div', { className: "bg-white rounded-lg shadow-sm p-6 mb-6" },
+              React.createElement('div', { className: "bg-white rounded-lg shadow-sm p-4 md:p-6 mb-4 md:mb-6" },
                 React.createElement('h1', { className: "text-3xl font-bold text-gray-800 mb-2" }, "Programare Consultație"),
                 React.createElement('p', { className: "text-gray-600" }, "Completează pașii pentru a realiza o programare")
               ),
 
-              // Progress Steps
-              React.createElement('div', { className: "bg-white rounded-lg shadow-sm p-6 mb-6" },
-                React.createElement('div', { className: "flex items-center justify-between" },
+              // Progress Steps (hidden on mobile)
+              React.createElement('div', { className: "hidden md:block bg-white rounded-lg shadow-sm p-3 md:p-6 mb-4 md:mb-6" },
+                React.createElement('div', { className: "flex items-center gap-2 md:gap-4 overflow-x-auto no-scrollbar" },
                   steps.map((s, idx) => {
                     const Icon = s.icon;
                     return React.createElement(React.Fragment, { key: s.num },
@@ -364,55 +643,86 @@
               ),
 
               // Main Content
-              React.createElement('div', { className: "bg-white rounded-lg shadow-lg p-8 min-h-96" },
+              React.createElement('div', { className: "bg-white rounded-lg shadow-sm md:shadow-lg p-4 md:p-8 min-h-96" },
                 // Step 1: Serviciu
                 step === 1 && React.createElement('div', { className: "space-y-4" },
-                  React.createElement('h2', { className: "text-2xl font-bold text-gray-800 mb-6" }, "Selectează Serviciul"),
-                  React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
-                    services.map(service => 
-                      React.createElement('div', {
-                        key: service.id,
-                        onClick: () => selectService(service),
-                        className: `border-2 rounded-lg p-6 cursor-pointer transition-all hover:shadow-md ${
-                          bookingData.service?.id === service.id 
-                            ? 'border-blue-600 bg-blue-50' 
-                            : 'border-gray-200 hover:border-blue-300'
-                        }`
-                      },
-                        React.createElement('h3', { className: "font-bold text-lg text-gray-800 mb-2" }, service.name),
-                        React.createElement('p', { className: "text-sm text-gray-600 mb-3" }, service.description),
-                        React.createElement('div', { className: "flex justify-between items-center" },
-                          React.createElement('span', { className: "text-sm text-gray-500" }, `⏱️ ${service.duration} min`)
-                        )
-                      )
-                    )
-                  )
-                ),
-
-                // Step 2: Medic
-                step === 2 && React.createElement('div', { className: "space-y-4" },
-                  React.createElement('h2', { className: "text-2xl font-bold text-gray-800 mb-6" }, "Selectează Medicul"),
-                  React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
-                    filteredDoctors.map(doctor => 
-                      React.createElement('div', {
-                        key: doctor.id,
-                        onClick: () => selectDoctor(doctor),
-                        className: `border-2 rounded-lg p-6 cursor-pointer transition-all hover:shadow-md ${
-                          bookingData.doctor?.id === doctor.id 
-                            ? 'border-blue-600 bg-blue-50' 
-                            : 'border-gray-200 hover:border-blue-300'
-                        }`
-                      },
-                        React.createElement('div', { className: "flex items-center mb-3" },
-                          React.createElement('span', { className: "text-4xl mr-4" }, doctor.image),
-                          React.createElement('div', null,
-                            React.createElement('h3', { className: "font-bold text-lg text-gray-800" }, doctor.name),
-                            React.createElement('p', { className: "text-sm text-gray-600" }, doctor.specialty)
+                  React.createElement('h2', { className: "text-2xl font-bold text-gray-800 mb-2" }, "Selectează Serviciul"),
+                  React.createElement('p', { className: "text-sm text-gray-600 mb-4" }, "Alege serviciul medical pentru a continua la selecția medicului."),
+                  
+                  loadingServices ? 
+                    React.createElement('div', { className: "text-center py-12" },
+                      React.createElement('div', { className: "inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" }),
+                      React.createElement('div', { className: "mt-4 text-gray-600" }, "Se încarcă serviciile...")
+                    ) :
+                    apiError ? 
+                      React.createElement('div', { className: "text-center py-12" },
+                        React.createElement('div', { className: "text-red-600 mb-4" }, apiError),
+                        React.createElement('button', {
+                          onClick: () => window.location.reload(),
+                          className: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                        }, "Reîncearcă")
+                      ) :
+                    React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4" },
+                      services.map(service => 
+                        React.createElement('div', {
+                          key: service.id,
+                          onClick: () => selectService(service),
+                          className: `border-2 rounded-lg p-4 md:p-6 cursor-pointer transition-all hover:shadow-md ${
+                            bookingData.service?.id === service.id 
+                              ? 'border-blue-600 bg-blue-50' 
+                              : 'border-gray-200 hover:border-blue-300'
+                          }`
+                        },
+                          React.createElement('h3', { className: "font-bold text-lg text-gray-800 mb-2" }, service.name),
+                          React.createElement('p', { className: "text-sm text-gray-600 mb-3" }, service.description || 'Serviciu medical'),
+                          React.createElement('div', { className: "flex justify-between items-center" },
+                            React.createElement('span', { className: "text-sm text-gray-500" }, `⏱️ ${service.duration} min`)
                           )
                         )
                       )
                     )
-                  )
+                ),
+
+                // Step 2: Medic
+                step === 2 && React.createElement('div', { className: "space-y-4" },
+                  React.createElement('h2', { className: "text-2xl font-bold text-gray-800 mb-2" }, "Selectează Medicul"),
+                  React.createElement('p', { className: "text-sm text-gray-600 mb-4" }, "Alege un medic disponibil pentru serviciul selectat."),
+                  
+                  loadingDoctors ? 
+                    React.createElement('div', { className: "text-center py-12" },
+                      React.createElement('div', { className: "inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" }),
+                      React.createElement('div', { className: "mt-4 text-gray-600" }, "Se încarcă medicii...")
+                    ) :
+                    apiError ? 
+                      React.createElement('div', { className: "text-center py-12" },
+                        React.createElement('div', { className: "text-red-600 mb-4" }, apiError),
+                        React.createElement('button', {
+                          onClick: () => window.location.reload(),
+                          className: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                        }, "Reîncearcă")
+                      ) :
+                    React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4" },
+                      filteredDoctors.map(doctor => 
+                        React.createElement('div', {
+                          key: doctor.id,
+                          onClick: () => selectDoctor(doctor),
+                          className: `border-2 rounded-lg p-4 md:p-6 cursor-pointer transition-all hover:shadow-md ${
+                            bookingData.doctor?.id === doctor.id 
+                              ? 'border-blue-600 bg-blue-50' 
+                              : 'border-gray-200 hover:border-blue-300'
+                          }`
+                        },
+                          React.createElement('div', { className: "flex items-center mb-3" },
+                            React.createElement('span', { className: "text-4xl mr-4" }, '👨‍⚕️'),
+                            React.createElement('div', null,
+                              React.createElement('h3', { className: "font-bold text-lg text-gray-800" }, 
+                                `Dr. ${doctor.first_name} ${doctor.last_name}`
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
                 ),
 
                 // Step 3: Data - Calendar View
@@ -532,6 +842,30 @@
                     )
                   ),
                   
+                  loading ? 
+                    React.createElement('div', { className: "text-center py-12" },
+                      React.createElement('div', { className: "inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" }),
+                      React.createElement('div', { className: "mt-4 text-gray-600" }, "Se încarcă sloturile...")
+                    ) :
+                  error ? 
+                    React.createElement('div', { className: "text-center py-12 text-red-600" },
+                      React.createElement('div', { className: "mb-4" }, "⚠️"),
+                      React.createElement('div', null, error),
+                      React.createElement('button', {
+                        onClick: () => {
+                          setError(null);
+                          // Reîncarcă sloturile
+                          const loadSlots = async () => {
+                            if (bookingData.service && bookingData.doctor && bookingData.date) {
+                              const slots = await generateTimeSlots();
+                              setTimeSlots(slots);
+                            }
+                          };
+                          loadSlots();
+                        },
+                        className: "mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      }, "Încearcă din nou")
+                    ) :
                   filteredTimeSlots.length === 0 ? 
                     React.createElement('div', { className: "text-center py-12 text-gray-500" }, "Nu sunt sloturi disponibile în această perioadă") :
                     React.createElement('div', { className: "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3" },
@@ -577,7 +911,8 @@
 
                 // Step 5: Membru Familie
                 step === 5 && React.createElement('div', { className: "space-y-4" },
-                  React.createElement('h2', { className: "text-2xl font-bold text-gray-800 mb-6" }, "Pentru Cine Este Programarea?"),
+                  React.createElement('h2', { className: "text-2xl font-bold text-gray-800 mb-2" }, "Pentru Cine Este Programarea?"),
+                  React.createElement('p', { className: "text-sm text-gray-600 mb-4" }, "Selectează pacientul (tu sau un membru al familiei) pentru care faci programarea."),
                   React.createElement('div', { className: "space-y-3" },
                     familyMembers.map(member => 
                       React.createElement('div', {
@@ -594,10 +929,10 @@
                             React.createElement('div', { className: "w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mr-4" },
                               React.createElement(User, { className: "text-blue-600", size: 24 })
                             ),
-                            React.createElement('div', null,
-                              React.createElement('h3', { className: "font-bold text-gray-800" }, member.name),
-                              React.createElement('p', { className: "text-sm text-gray-600" }, `📞 ${member.phone}`),
-                              React.createElement('p', { className: "text-sm text-gray-600" }, `🆔 ${member.cnp}`)
+                          React.createElement('div', null,
+                              React.createElement('span', { id: "mbs-patient-name", className: "font-bold text-gray-800" }, (currentUserInfo?.display_name) || selectedPatientLabel || getPatientLabel()),
+                              (member.phone ? React.createElement('p', { className: "text-sm text-gray-600" }, `📞 ${member.phone}`) : null),
+                              ((member.cnp_masked || member.cnp) ? React.createElement('p', { className: "text-sm text-gray-600" }, `🆔 ${member.cnp_masked || member.cnp}`) : null)
                             )
                           ),
                           member.isDefault && React.createElement('span', { 
@@ -614,7 +949,8 @@
 
                 // Step 6: Rezumat
                 step === 6 && React.createElement('div', { className: "space-y-6" },
-                  React.createElement('h2', { className: "text-2xl font-bold text-gray-800 mb-6" }, "Rezumat Programare"),
+                  React.createElement('h2', { className: "text-2xl font-bold text-gray-800 mb-2" }, "Rezumat Programare"),
+                  React.createElement('p', { className: "text-sm text-gray-600 mb-4" }, "Verifică detaliile și apasă \"Confirmă Programarea\"."),
                   
                   React.createElement('div', { className: "bg-blue-50 rounded-lg p-6 space-y-4" },
                     React.createElement('div', { className: "flex justify-between items-start border-b border-blue-100 pb-3" },
@@ -628,8 +964,10 @@
                     React.createElement('div', { className: "flex justify-between items-start border-b border-blue-100 pb-3" },
                       React.createElement('span', { className: "text-gray-600 font-medium" }, "Medic:"),
                       React.createElement('div', { className: "text-right" },
-                        React.createElement('p', { className: "font-bold text-gray-800" }, bookingData.doctor?.name),
-                        React.createElement('p', { className: "text-sm text-gray-600" }, bookingData.doctor?.specialty)
+                        React.createElement('p', { className: "font-bold text-gray-800" }, (
+                          bookingData.doctor?.name || (`Dr. ${bookingData.doctor?.first_name || ''} ${bookingData.doctor?.last_name || ''}`).trim()
+                        )),
+                        bookingData.doctor && React.createElement('p', { className: "text-sm text-gray-600" }, bookingData.doctor.specialty || '')
                       )
                     ),
 
@@ -651,8 +989,8 @@
                     React.createElement('div', { className: "flex justify-between items-start border-b border-blue-100 pb-3" },
                       React.createElement('span', { className: "text-gray-600 font-medium" }, "Pacient:"),
                       React.createElement('div', { className: "text-right" },
-                        React.createElement('p', { className: "font-bold text-gray-800" }, bookingData.familyMember?.name),
-                        React.createElement('p', { className: "text-sm text-gray-600" }, bookingData.familyMember?.phone)
+                        React.createElement('span', { id: "mbs-patient-name-summary", className: "font-bold text-gray-800" }, (currentUserInfo?.display_name) || selectedPatientLabel || getPatientLabel()),
+                        (bookingData.familyMember?.phone ? React.createElement('p', { className: "text-sm text-gray-600" }, bookingData.familyMember?.phone) : null)
                       )
                     )
                   ),
@@ -718,7 +1056,7 @@
               ),
 
               // Navigation Buttons
-              step < 7 && React.createElement('div', { className: "flex justify-between mt-6" },
+              step < 7 && React.createElement('div', { className: "flex justify-between mt-6 md:mt-6 fixed bottom-0 left-0 right-0 bg-white border-t p-3 md:static md:bg-transparent md:border-0 md:p-0 z-40" },
                 React.createElement('button', {
                   onClick: handleBack,
                   disabled: step === 1,
@@ -732,24 +1070,31 @@
                   "Înapoi"
                 ),
 
-                step === 6 && React.createElement('button', {
+                // Next/Confirm button
+                React.createElement('button', {
                   onClick: handleNext,
-                  disabled: loading,
-                  className: `flex items-center px-8 py-3 rounded-lg font-medium shadow-md transition-all ${
-                    loading 
-                      ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-green-600 hover:bg-green-700'
-                  } text-white`
+                  disabled: (step === 6 && loading) || (step < 6 && !canProceed),
+                  className: `flex items-center px-8 py-3 rounded-lg font-medium shadow-md transition-all text-white ${
+                    step === 6
+                      ? (loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700')
+                      : (canProceed ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 cursor-not-allowed')
+                  }`
                 },
-                  loading ? 
-                    React.createElement(React.Fragment, null,
-                      React.createElement('div', { className: "animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2" }),
-                      "Se procesează..."
-                    ) :
-                    React.createElement(React.Fragment, null,
-                      "Confirmă Programarea",
-                      React.createElement(Check, { size: 20, className: "ml-2" })
-                    )
+                  step === 6
+                    ? (loading
+                        ? React.createElement(React.Fragment, null,
+                            React.createElement('div', { className: "animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2" }),
+                            "Se procesează..."
+                          )
+                        : React.createElement(React.Fragment, null,
+                            "Confirmă Programarea",
+                            React.createElement(Check, { size: 20, className: "ml-2" })
+                          )
+                      )
+                    : React.createElement(React.Fragment, null,
+                        "Înainte",
+                        React.createElement(ChevronRight, { size: 20, className: "ml-2" })
+                      )
                 )
               )
             )
